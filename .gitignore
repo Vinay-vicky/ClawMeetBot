@@ -1,0 +1,32 @@
+# Environment variables (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# SQLite database (local data)
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp / test scripts
+getChatId.js
+
+# PM2
+.pm2/
+
+# Build output
+dist/
+build/
