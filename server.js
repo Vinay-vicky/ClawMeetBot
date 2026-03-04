@@ -155,6 +155,18 @@ const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   startScheduler();
+
+  // Keep-alive: ping self every 14 minutes so Render free tier doesn't spin down
+  const appUrl = process.env.RENDER_EXTERNAL_URL;
+  if (appUrl) {
+    const http = require("https");
+    setInterval(() => {
+      http.get(appUrl, (res) => {
+        console.log(`♻️  Keep-alive ping → ${res.statusCode}`);
+      }).on("error", (e) => console.error("Keep-alive error:", e.message));
+    }, 14 * 60 * 1000);
+    console.log(`♻️  Keep-alive enabled → ${appUrl}`);
+  }
 });
 
 server.on("error", (err) => {

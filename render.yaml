@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: claw-meet-bot
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    plan: free
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_GROUP_ID
+        sync: false
+      - key: TEAMS_APP_ID
+        sync: false
+      - key: TEAMS_APP_PASSWORD
+        sync: false
+      - key: TEAMS_TENANT_ID
+        sync: false
+      - key: OUTLOOK_USER_EMAIL
+        sync: false
+      - key: TIMEZONE
+        value: Asia/Kolkata
+      - key: MEET_LINK_BASE_URL
+        value: https://meet.google.com
+      - key: OPENAI_API_KEY
+        sync: false
