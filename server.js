@@ -4,9 +4,32 @@ const { sendToGroup, generateMeetLink } = require("./services/telegramService");
 const { startScheduler } = require("./services/schedulerService");
 const { formatMeetingMessage } = require("./utils/formatter");
 const { getMeetings } = require("./services/teamsService");
+const { generateMeetingSummary } = require("./services/aiSummaryService");
 
 const app = express();
 app.use(express.json());
+
+// Test Gemini AI summary with a sample transcript
+app.get("/ai-test", async (req, res) => {
+  const sampleTranscript = `
+    Vignesh explained the ClawMeetBot deployment on Render.
+    Ashwin will test the Teams integration by Thursday.
+    The team agreed to enable meeting recordings for transcript capture.
+    LakshmiPriya will follow up with the client about the new automation.
+    Vivin will update the documentation by end of week.
+  `;
+  const summary = await generateMeetingSummary(sampleTranscript, "Weekly Team Meeting");
+  if (!summary) {
+    return res.status(500).send("Gemini not configured. Add GEMINI_API_KEY to .env on Render.");
+  }
+  // Also send to Telegram group
+  sendToGroup([
+    `🧠 <b>AI Summary Test</b>`,
+    ``,
+    summary,
+  ].join("\n"));
+  res.type("text").send(summary);
+});
 
 // Health check
 app.get("/", (req, res) => {

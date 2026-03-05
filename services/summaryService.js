@@ -1,13 +1,8 @@
-const OpenAI = require("openai");
+const { generateMeetingSummary } = require("./aiSummaryService");
 const fetch = require("node-fetch");
 const { ClientSecretCredential } = require("@azure/identity");
 const { saveSummary, hasReminderBeenSent, markReminderSent } = require("./dbService");
 const { sendToGroup } = require("./telegramService");
-
-let openai = null;
-if (process.env.OPENAI_API_KEY) {
-  openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-}
 
 /** Get a Graph API access token */
 async function getToken() {
@@ -62,18 +57,9 @@ async function fetchTranscript(joinUrl) {
   }
 }
 
-/** Generate an AI summary using OpenAI */
+/** Generate an AI summary using Gemini */
 async function generateSummary(subject, transcriptText) {
-  if (!openai) {
-    return "(AI summary not available — add OPENAI_API_KEY to .env)";
-  }
-  const prompt = `You are a meeting summarizer. Below is the transcript of a meeting titled "${subject}". Write a short summary with two sections: "Key Points" (3-5 bullets) and "Action Items" (who does what). Be concise.\n\nTranscript:\n${transcriptText}`;
-  const res = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "user", content: prompt }],
-    max_tokens: 400,
-  });
-  return res.choices[0].message.content.trim();
+  return await generateMeetingSummary(transcriptText, subject);
 }
 
 /**
