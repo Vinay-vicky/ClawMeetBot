@@ -201,7 +201,7 @@ initDb().then(() => {
       { command: "week",          description: "Full week schedule grouped by day" },
       { command: "meet",          description: "Create a Teams meeting" },
       { command: "cancelmeeting", description: "Cancel a scheduled meeting" },
-      { command: "history",       description: "Last 5 past meetings" },
+      { command: "history",       description: "Last N past meetings (e.g. /history 10)" },
       { command: "summary",       description: "AI summary of a past meeting" },
       { command: "notes",         description: "View or add notes to a meeting" },
       { command: "tasks",         description: "Pending action items" },
