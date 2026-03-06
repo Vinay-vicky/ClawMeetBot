@@ -432,4 +432,4 @@ bot.on("polling_error", (err) => console.error("❌ Polling error:", err.message
 process.on("unhandledRejection", (reason) => console.error("❌ Unhandled Rejection:", reason));
 process.on("uncaughtException", (err) => console.error("❌ Uncaught Exception:", err.message));
 
-module.exports = { bot, sendToGroup, generateMeetLink };
+module.exports = { bot, sendToGroup };
