@@ -465,9 +465,9 @@ bot.onText(/\/tasks/, async (msg) => {
   const lines = ["<b>📋 Pending Tasks</b>", ""];
   const keyboard = [];
   tasks.forEach((t, i) => {
-    const deadline = t.deadline ? ` ⏳ ${t.deadline}` : "";
+    const deadline = t.deadline ? `  📅 <i>${t.deadline}</i>` : "";
     lines.push(`${i + 1}. <b>${t.person}</b> — ${t.task}${deadline}`);
-    lines.push(`   <i>${t.meeting_subject}</i>`);
+    lines.push(`   <i>${t.meeting_subject}</i>  <code>/done ${t.id}</code>`);
     lines.push("");
     keyboard.push([{ text: `✅ Done: ${t.task.substring(0, 35)}`, callback_data: `done_${t.id}` }]);
   });
@@ -521,8 +521,8 @@ bot.onText(/\/remind(?:\s+(.+))?/, async (msg, match) => {
     Object.entries(grouped).forEach(([person, ptasks]) => {
       lines.push(`<b>${person}:</b>`);
       ptasks.forEach((t) => {
-        const deadline = t.deadline ? ` ⏳ ${t.deadline}` : "";
-        lines.push(`  • ${t.task}${deadline}`);
+        const deadline = t.deadline ? `  📅 <i>${t.deadline}</i>` : "";
+        lines.push(`  • ${t.task}${deadline}  <code>/done ${t.id}</code>`);
       });
       lines.push("");
     });
@@ -540,7 +540,7 @@ bot.onText(/\/remind(?:\s+(.+))?/, async (msg, match) => {
     "",
   ];
   tasks.forEach((t, i) => {
-    const deadline = t.deadline ? ` ⏳ ${t.deadline}` : "";
+    const deadline = t.deadline ? `  📅 <i>${t.deadline}</i>` : "";
     lines.push(`${i + 1}. ${t.task}${deadline}`);
     lines.push(`   <i>from: ${t.meeting_subject}</i>  <code>/done ${t.id}</code>`);
   });
@@ -696,11 +696,13 @@ bot.onText(/\/week/, async (msg) => {
       grouped[key].push(e);
     }
     const lines = ["<b>📆 Week Ahead</b>", ""];
+    const todayKey = new Date().toLocaleDateString("en-CA", { timeZone: tz });
     for (const [key, dayEvents] of Object.entries(grouped).sort()) {
+      const isToday = key === todayKey;
       const label = new Date(key + "T12:00:00Z").toLocaleDateString("en-IN", {
         weekday: "long", day: "numeric", month: "short", timeZone: "UTC",
       });
-      lines.push(`<b>📅 ${label}</b>`);
+      lines.push(isToday ? `<b>📍 ${label} — Today</b>` : `<b>📅 ${label}</b>`);
       dayEvents.forEach((e) => {
         const s  = new Date((e.start.dateTime || e.start.date).replace(/Z?$/, "Z"));
         const en = new Date((e.end.dateTime   || e.end.date).replace(/Z?$/, "Z"));
