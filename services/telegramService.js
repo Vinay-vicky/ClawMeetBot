@@ -1,7 +1,6 @@
 const TelegramBot = require("node-telegram-bot-api");
-const { formatMeetingMessage } = require("../utils/formatter");
 const { getRecentMeetings, getPendingTasks, markTaskDone } = require("./dbService");
-const { getScheduledMeetings } = require("./calendarService");
+const { getScheduledMeetings, createTeamsMeeting } = require("./calendarService");
 
 if (!process.env.TELEGRAM_BOT_TOKEN) {
   console.error("❌ ERROR: TELEGRAM_BOT_TOKEN is missing from .env");
@@ -12,12 +11,65 @@ console.log("✅ Token loaded:", process.env.TELEGRAM_BOT_TOKEN.substring(0, 10)
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
-// Generate a unique meeting link
-function generateMeetLink() {
-  const base = process.env.MEET_LINK_BASE_URL || "https://meet.google.com";
-  const roomId = Math.random().toString(36).substring(2, 10);
-  return `${base}/${roomId}`;
+// In-memory state for /meet wizard: chatId -> { step, data }
+const meetSessions = new Map();
+
+// ── Wizard parse helpers ─────────────────────────────────────────
+function parseDateStr(input, tz) {
+  const lower = input.trim().toLowerCase();
+  const toYMD = (d) => d.toLocaleDateString("en-CA", { timeZone: tz });
+  const today = new Date();
+  if (lower === "today") return toYMD(today);
+  if (lower === "tomorrow") return toYMD(new Date(today.getTime() + 86400000));
+  const months = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
+  let m = lower.match(/^(\d{1,2})\s*([a-z]{3})/);
+  if (m && months[m[2]]) {
+    const yr = today.getFullYear();
+    return `${yr}-${String(months[m[2]]).padStart(2,"0")}-${String(parseInt(m[1])).padStart(2,"0")}`;
+  }
+  m = lower.match(/^([a-z]{3})\s*(\d{1,2})/);
+  if (m && months[m[1]]) {
+    const yr = today.getFullYear();
+    return `${yr}-${String(months[m[1]]).padStart(2,"0")}-${String(parseInt(m[2])).padStart(2,"0")}`;
+  }
+  m = lower.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (m) {
+    const yr = today.getFullYear();
+    return `${yr}-${String(parseInt(m[2])).padStart(2,"0")}-${String(parseInt(m[1])).padStart(2,"0")}`;
+  }
+  return null;
 }
+
+function parseTimeStr(input) {
+  const s = input.trim().toLowerCase().replace(/\s/g, "");
+  let m = s.match(/^(\d{1,2}):(\d{2})(am|pm)?$/);
+  if (m) {
+    let h = parseInt(m[1]); const min = m[2]; const mer = m[3];
+    if (mer === "pm" && h < 12) h += 12;
+    if (mer === "am" && h === 12) h = 0;
+    return `${String(h).padStart(2,"0")}:${min}`;
+  }
+  m = s.match(/^(\d{1,2})(am|pm)$/);
+  if (m) {
+    let h = parseInt(m[1]); const mer = m[2];
+    if (mer === "pm" && h < 12) h += 12;
+    if (mer === "am" && h === 12) h = 0;
+    return `${String(h).padStart(2,"0")}:00`;
+  }
+  return null;
+}
+
+function parseDurationMins(input) {
+  const s = input.trim().toLowerCase();
+  let m = s.match(/(\d+\.?\d*)\s*h/);
+  if (m) return Math.round(parseFloat(m[1]) * 60);
+  m = s.match(/(\d+)\s*m/);
+  if (m) return parseInt(m[1]);
+  m = s.match(/^(\d+)$/);
+  if (m) return parseInt(m[1]);
+  return null;
+}
+// ─────────────────────────────────────────────────────────────────
 
 // Send a message to the group
 function sendToGroup(message) {
@@ -51,7 +103,8 @@ bot.onText(/\/start/, (msg) => {
     "/done &lt;id&gt; — Mark a task complete (e.g. /done 3)",
     "",
     "<b>🔗 Other</b>",
-    "/meet — Generate an instant meeting link",
+    "/meet — Create a real Teams meeting (guided)",
+    "/cancel — Cancel an in-progress /meet wizard",
     "/help — Show this menu again",
     "",
     "<i>Meetings are auto-fetched from Outlook. Reminders sent 1 day, 1 hour, and 10 min before. AI summary + tasks posted after each meeting ends.</i>",
@@ -59,14 +112,123 @@ bot.onText(/\/start/, (msg) => {
   bot.sendMessage(msg.chat.id, welcome, { parse_mode: "HTML" });
 });
 
-// /meet — generate and broadcast a meeting link
-bot.onText(/\/meet/, (msg) => {
-  const link = generateMeetLink();
-  const message = formatMeetingMessage(link);
-  sendToGroup(message);
-  // Also reply in the chat where command was sent
-  bot.sendMessage(msg.chat.id, message, { parse_mode: "HTML" });
+// /cancel — abort an active /meet wizard
+bot.onText(/\/cancel/, (msg) => {
+  if (meetSessions.has(msg.chat.id)) {
+    meetSessions.delete(msg.chat.id);
+    bot.sendMessage(msg.chat.id, "\u274c Meeting creation cancelled.", { parse_mode: "HTML" });
+  }
 });
+
+// /meet — start Teams meeting creation wizard
+bot.onText(/\/meet/, (msg) => {
+  meetSessions.set(msg.chat.id, { step: "title", data: {} });
+  bot.sendMessage(
+    msg.chat.id,
+    "\uD83D\uDDD3 <b>Create a Teams Meeting</b>\n\n<b>Step 1 of 4</b> \u2014 What\u2019s the <b>meeting title?</b>\n\n<i>Type /cancel at any time to abort.</i>",
+    { parse_mode: "HTML" }
+  );
+});
+
+// Wizard step processor
+async function handleMeetWizard(msg, session, text) {
+  const chatId = msg.chat.id;
+  const tz = process.env.TIMEZONE || "Asia/Kolkata";
+
+  if (session.step === "title") {
+    if (!text.trim()) return bot.sendMessage(chatId, "Please enter a meeting title.");
+    session.data.title = text.trim();
+    session.step = "date";
+    meetSessions.set(chatId, session);
+    return bot.sendMessage(chatId,
+      "<b>Step 2 of 4</b> \u2014 \uD83D\uDCC5 <b>Date?</b>\n\nExamples: <code>today</code>  <code>tomorrow</code>  <code>7 Mar</code>  <code>DD/MM</code>",
+      { parse_mode: "HTML" });
+  }
+
+  if (session.step === "date") {
+    const dateStr = parseDateStr(text, tz);
+    if (!dateStr) {
+      return bot.sendMessage(chatId,
+        "\u274c Couldn\u2019t understand that date. Try: <code>today</code>, <code>tomorrow</code>, <code>7 Mar</code>",
+        { parse_mode: "HTML" });
+    }
+    session.data.dateStr = dateStr;
+    session.step = "time";
+    meetSessions.set(chatId, session);
+    return bot.sendMessage(chatId,
+      "<b>Step 3 of 4</b> \u2014 \uD83D\uDD50 <b>Start time?</b>\n\nExamples: <code>3pm</code>  <code>15:30</code>  <code>9:00 AM</code>",
+      { parse_mode: "HTML" });
+  }
+
+  if (session.step === "time") {
+    const timeStr = parseTimeStr(text);
+    if (!timeStr) {
+      return bot.sendMessage(chatId,
+        "\u274c Couldn\u2019t understand that time. Try: <code>3pm</code>, <code>15:30</code>, <code>9:00 AM</code>",
+        { parse_mode: "HTML" });
+    }
+    session.data.timeStr = timeStr;
+    session.step = "duration";
+    meetSessions.set(chatId, session);
+    return bot.sendMessage(chatId,
+      "<b>Step 4 of 4</b> \u2014 \u23F1 <b>Duration?</b>\n\nExamples: <code>30 min</code>  <code>1 hour</code>  <code>1.5h</code>  <code>90m</code>",
+      { parse_mode: "HTML" });
+  }
+
+  if (session.step === "duration") {
+    const durationMins = parseDurationMins(text);
+    if (!durationMins || durationMins < 5) {
+      return bot.sendMessage(chatId,
+        "\u274c Couldn\u2019t understand that. Try: <code>30 min</code>, <code>1 hour</code>, <code>45m</code>",
+        { parse_mode: "HTML" });
+    }
+    session.data.durationMins = durationMins;
+    session.step = "attendees";
+    meetSessions.set(chatId, session);
+    return bot.sendMessage(chatId,
+      "\uD83D\uDC65 <b>Attendees? (optional)</b>\n\nEnter email addresses separated by commas, or type <code>skip</code>:\n<code>alice@company.com, bob@company.com</code>",
+      { parse_mode: "HTML" });
+  }
+
+  if (session.step === "attendees") {
+    meetSessions.delete(chatId);
+    const attendees = text.toLowerCase() === "skip"
+      ? []
+      : text.split(",").map((e) => e.trim()).filter((e) => e.includes("@"));
+
+    bot.sendMessage(chatId, "\u23F3 Creating your Teams meeting...");
+
+    try {
+      const { title, dateStr, timeStr, durationMins } = session.data;
+      const event = await createTeamsMeeting(title, dateStr, timeStr, durationMins, attendees, tz);
+
+      const joinUrl = event.onlineMeeting?.joinUrl || event.webLink;
+      const hrs = Math.floor(durationMins / 60);
+      const mins = durationMins % 60;
+      const hrMin = hrs > 0 && mins > 0 ? `${hrs}h ${mins}m` : hrs > 0 ? `${hrs}h` : `${mins}m`;
+
+      const lines = [
+        "\u2705 <b>Teams Meeting Created!</b>",
+        "",
+        `\uD83D\uDCCC <b>${title}</b>`,
+        `\uD83D\uDCC5 ${dateStr}  \uD83D\uDD50 ${timeStr}  \u23F1 ${hrMin}`,
+        attendees.length ? `\uD83D\uDC65 ${attendees.join(", ")}` : "",
+        "",
+        `\uD83D\uDD17 <a href="${joinUrl}">Join Meeting</a>`,
+      ].filter((l) => l !== "");
+
+      const message = lines.join("\n");
+      bot.sendMessage(chatId, message, { parse_mode: "HTML", disable_web_page_preview: true });
+      sendToGroup(message);
+    } catch (err) {
+      console.error("\u274c createTeamsMeeting error:", err.message);
+      bot.sendMessage(chatId,
+        `\u274c Failed to create meeting: <code>${err.message.substring(0, 300)}</code>`,
+        { parse_mode: "HTML" });
+    }
+    return;
+  }
+}
 
 // /help — show available commands
 bot.onText(/\/help/, (msg) => {
@@ -85,7 +247,8 @@ bot.onText(/\/help/, (msg) => {
     "/done &lt;id&gt; — Mark a task as done (e.g. /done 3)",
     "",
     "<b>🔗 Other</b>",
-    "/meet — Generate an instant meeting link",
+    "/meet — Create a real Teams meeting (guided)",
+    "/cancel — Cancel an in-progress /meet wizard",
     "/help — Show this message",
   ].join("\n");
   bot.sendMessage(msg.chat.id, help, { parse_mode: "HTML" });
@@ -245,10 +408,18 @@ bot.onText(/\/upcoming/, async (msg) => {
   }
 });
 
-// Log all incoming messages
+// Message handler: route to wizard when active, otherwise log
 bot.on("message", (msg) => {
-  if (msg.text && !msg.text.startsWith("/")) {
-    console.log(`[${msg.chat.type}] ${msg.from.username || msg.from.first_name}: ${msg.text}`);
+  const session = meetSessions.get(msg.chat.id);
+  const text = (msg.text || "").trim();
+
+  if (session && text && !text.startsWith("/")) {
+    handleMeetWizard(msg, session, text);
+    return;
+  }
+
+  if (text && !text.startsWith("/")) {
+    console.log(`[${msg.chat.type}] ${msg.from.username || msg.from.first_name}: ${text}`);
   }
 });
 
