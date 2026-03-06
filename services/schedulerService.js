@@ -50,26 +50,26 @@ function buildReminderMessage(event, label, emoji) {
  *   1hour → 50min .. 70min before start
  *   10min → 7min  .. 13min before start
  */
-function checkReminders(event, nowMs) {
+async function checkReminders(event, nowMs) {
   const startMs = new Date((event.start.dateTime || event.start.date).replace(/Z?$/, "Z")).getTime();
   const endMs   = new Date((event.end.dateTime   || event.end.date  ).replace(/Z?$/, "Z")).getTime();
   const diffMin = (startMs - nowMs) / 60000;
 
-  if (diffMin >= 1425 && diffMin <= 1455 && !hasReminderBeenSent(event.id, "1day")) {
+  if (diffMin >= 1425 && diffMin <= 1455 && !(await hasReminderBeenSent(event.id, "1day"))) {
     sendToGroup(buildReminderMessage(event, "Meeting Tomorrow", "🔔"));
-    markReminderSent(event.id, "1day");
+    await markReminderSent(event.id, "1day");
     console.log(`🔔 1-day reminder sent: ${event.subject}`);
   }
 
-  if (diffMin >= 50 && diffMin <= 70 && !hasReminderBeenSent(event.id, "1hour")) {
+  if (diffMin >= 50 && diffMin <= 70 && !(await hasReminderBeenSent(event.id, "1hour"))) {
     sendToGroup(buildReminderMessage(event, "Meeting in 1 Hour", "⏰"));
-    markReminderSent(event.id, "1hour");
+    await markReminderSent(event.id, "1hour");
     console.log(`⏰ 1-hour reminder sent: ${event.subject}`);
   }
 
-  if (diffMin >= 7 && diffMin <= 13 && !hasReminderBeenSent(event.id, "10min")) {
+  if (diffMin >= 7 && diffMin <= 13 && !(await hasReminderBeenSent(event.id, "10min"))) {
     sendToGroup(buildReminderMessage(event, "Meeting Starts in 10 Minutes!", "🚨"));
-    markReminderSent(event.id, "10min");
+    await markReminderSent(event.id, "10min");
     console.log(`🚨 10-min reminder sent: ${event.subject}`);
   }
 
@@ -85,8 +85,8 @@ function startScheduler() {
   cron.schedule("* * * * *", async () => {
     const events = await getScheduledMeetings(-30, 1500);
     for (const event of events) {
-      saveMeeting(event);
-      checkReminders(event, Date.now());
+      await saveMeeting(event);
+      await checkReminders(event, Date.now());
     }
   });
 

@@ -76,13 +76,13 @@ async function generateSummary(subject, transcriptText) {
  */
 async function processMeetingEnd(event) {
   const reminderType = "summary";
-  if (hasReminderBeenSent(event.id, reminderType)) return;
+  if (await hasReminderBeenSent(event.id, reminderType)) return;
 
   const subject = (event.subject || "Meeting").trim();
   const joinUrl = (event.onlineMeeting && event.onlineMeeting.joinUrl) || event.webLink;
 
   console.log(`📝 Meeting ended: ${subject} — generating summary...`);
-  markReminderSent(event.id, reminderType);
+  await markReminderSent(event.id, reminderType);
 
   const tz = process.env.TIMEZONE || "Asia/Kolkata";
   const endTime = new Date((event.end.dateTime || event.end.date).replace(/Z?$/, "Z"));
@@ -100,12 +100,12 @@ async function processMeetingEnd(event) {
           analysis.keyPoints?.map((p) => `• ${p}`).join("\n") || "",
           analysis.tasks?.map((t) => `• ${t.person} → ${t.task}`).join("\n") || "",
         ].filter(Boolean).join("\n");
-        saveSummary(event.id, summaryText);
+        await saveSummary(event.id, summaryText);
 
         // Save each task to DB
         if (analysis.tasks?.length) {
           for (const t of analysis.tasks) {
-            saveTask(event.id, subject, t.person, t.task, t.deadline);
+            await saveTask(event.id, subject, t.person, t.task, t.deadline);
           }
         }
       }

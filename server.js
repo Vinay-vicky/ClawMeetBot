@@ -4,6 +4,7 @@ const { sendToGroup, bot } = require("./services/telegramService");
 const { startScheduler } = require("./services/schedulerService");
 const { getMeetings } = require("./services/teamsService");
 const { generateMeetingSummary } = require("./services/aiSummaryService");
+const { initDb, getRecentMeetings, getPendingTasks, markTaskDone } = require("./services/dbService");
 
 const app = express();
 app.use(express.json());
@@ -126,24 +127,21 @@ app.get("/test-broadcast", async (req, res) => {
 });
 
 // Meeting history from DB
-app.get("/history", (req, res) => {
-  const { getRecentMeetings } = require("./services/dbService");
+app.get("/history", async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
-  res.json(getRecentMeetings(limit));
+  res.json(await getRecentMeetings(limit));
 });
 
 // Pending tasks from DB
-app.get("/tasks", (req, res) => {
-  const { getPendingTasks } = require("./services/dbService");
-  res.json(getPendingTasks());
+app.get("/tasks", async (req, res) => {
+  res.json(await getPendingTasks());
 });
 
 // Mark a task done: POST /done { id: 1 }
-app.post("/done", (req, res) => {
-  const { markTaskDone } = require("./services/dbService");
+app.post("/done", async (req, res) => {
   const { id } = req.body;
   if (!id) return res.status(400).json({ error: "id required" });
-  markTaskDone(id);
+  await markTaskDone(id);
   res.json({ ok: true, message: `Task ${id} marked done` });
 });
 
@@ -187,35 +185,61 @@ app.post("/webhook/teams", (req, res) => {
 // Start server
 const PORT = process.env.PORT || 3000;
 
-const server = app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  startScheduler();
+// Initialize DB tables, then start the server
+initDb().then(() => {
+  const server = app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    startScheduler();
 
-  const appUrl = process.env.RENDER_EXTERNAL_URL;
-  if (appUrl) {
-    // Set Telegram webhook so Render receives updates instead of polling
-    const webhookUrl = `${appUrl}/webhook/telegram/${process.env.TELEGRAM_BOT_TOKEN}`;
-    bot.setWebHook(webhookUrl)
-      .then(() => console.log(`✅ Telegram webhook set: ${webhookUrl}`))
-      .catch((err) => console.error("\u274c Failed to set webhook:", err.message));
+    // Register bot commands so they appear in the Telegram / menu
+    bot.setMyCommands([
+      { command: "start",         description: "Welcome and command list" },
+      { command: "current",       description: "Meeting happening right now" },
+      { command: "next",          description: "Next scheduled meeting + join link" },
+      { command: "today",         description: "All meetings today" },
+      { command: "upcoming",      description: "Next 5 meetings (7-day view)" },
+      { command: "meet",          description: "Create a Teams meeting" },
+      { command: "cancelmeeting", description: "Cancel a scheduled meeting" },
+      { command: "history",       description: "Last 5 past meetings" },
+      { command: "summary",       description: "AI summary of a past meeting" },
+      { command: "tasks",         description: "Pending action items" },
+      { command: "done",          description: "Mark a task done (e.g. /done 3)" },
+      { command: "remind",        description: "Tasks for a person or all" },
+      { command: "cancel",        description: "Abort active wizard" },
+      { command: "help",          description: "Show all commands" },
+    ])
+      .then(() => console.log("✅ Bot commands registered with Telegram"))
+      .catch((e) => console.error("❌ setMyCommands failed:", e.message));
 
-    // Keep-alive: ping self every 14 minutes so Render free tier doesn't spin down
-    const https = require("https");
-    setInterval(() => {
-      https.get(appUrl, (res) => {
-        console.log(`♻️  Keep-alive ping → ${res.statusCode}`);
-      }).on("error", (e) => console.error("Keep-alive error:", e.message));
-    }, 14 * 60 * 1000);
-    console.log(`♻️  Keep-alive enabled → ${appUrl}`);
-  }
-});
+    const appUrl = process.env.RENDER_EXTERNAL_URL;
+    if (appUrl) {
+      // Set Telegram webhook so Render receives updates instead of polling
+      const webhookUrl = `${appUrl}/webhook/telegram/${process.env.TELEGRAM_BOT_TOKEN}`;
+      bot.setWebHook(webhookUrl)
+        .then(() => console.log(`✅ Telegram webhook set: ${webhookUrl}`))
+        .catch((err) => console.error("❌ Failed to set webhook:", err.message));
 
-server.on("error", (err) => {
-  if (err.code === "EADDRINUSE") {
-    console.error(`❌ Port ${PORT} busy — trying ${PORT + 1}`);
-    app.listen(PORT + 1, () => {
-      console.log(`Server running on port ${PORT + 1}`);
-      startScheduler();
-    });
-  }
+      // Keep-alive: ping self every 14 minutes so Render free tier doesn't spin down
+      const https = require("https");
+      setInterval(() => {
+        https.get(appUrl, (res) => {
+          console.log(`♻️  Keep-alive ping → ${res.statusCode}`);
+        }).on("error", (e) => console.error("Keep-alive error:", e.message));
+      }, 14 * 60 * 1000);
+      console.log(`♻️  Keep-alive enabled → ${appUrl}`);
+    }
+  });
+
+  server.on("error", (err) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`❌ Port ${PORT} busy — trying ${PORT + 1}`);
+      app.listen(PORT + 1, () => {
+        console.log(`Server running on port ${PORT + 1}`);
+        startScheduler();
+      });
+    }
+  });
+}).catch((err) => {
+  console.error("❌ Failed to initialise database:", err.message);
+  process.exit(1);
 });

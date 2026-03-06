@@ -391,8 +391,8 @@ bot.onText(/\/help/, (msg) => {
 });
 
 // /history — show recent meetings from DB
-bot.onText(/\/history/, (msg) => {
-  const meetings = getRecentMeetings(5);
+bot.onText(/\/history/, async (msg) => {
+  const meetings = await getRecentMeetings(5);
   if (!meetings.length) {
     return bot.sendMessage(msg.chat.id, "No meeting history yet.");
   }
@@ -408,14 +408,14 @@ bot.onText(/\/history/, (msg) => {
 });
 
 // /summary <keyword> — re-show AI summary of a past meeting
-bot.onText(/\/summary(?:\s+(.+))?/, (msg, match) => {
+bot.onText(/\/summary(?:\s+(.+))?/, async (msg, match) => {
   const keyword = match && match[1] ? match[1].trim() : null;
   if (!keyword) {
     return bot.sendMessage(msg.chat.id,
       "Usage: <code>/summary &lt;meeting name&gt;</code>\nExample: <code>/summary sprint planning</code>",
       { parse_mode: "HTML" });
   }
-  const meetings = getMeetingByKeyword(keyword);
+  const meetings = await getMeetingByKeyword(keyword);
   if (!meetings.length) {
     return bot.sendMessage(msg.chat.id,
       `📭 No meetings found matching "<b>${keyword}</b>". Try /history to see meeting names.`,
@@ -436,8 +436,8 @@ bot.onText(/\/summary(?:\s+(.+))?/, (msg, match) => {
 });
 
 // /tasks — show pending action items from DB
-bot.onText(/\/tasks/, (msg) => {
-  const tasks = getPendingTasks();
+bot.onText(/\/tasks/, async (msg) => {
+  const tasks = await getPendingTasks();
   if (!tasks.length) {
     return bot.sendMessage(msg.chat.id, "✅ No pending tasks! All caught up.", { parse_mode: "HTML" });
   }
@@ -452,17 +452,17 @@ bot.onText(/\/tasks/, (msg) => {
 });
 
 // /done <id> — mark a task as done
-bot.onText(/\/done(?:\s+(\d+))?/, (msg, match) => {
+bot.onText(/\/done(?:\s+(\d+))?/, async (msg, match) => {
   const id = match && match[1] ? parseInt(match[1]) : null;
   if (!id) {
     return bot.sendMessage(msg.chat.id, "Usage: <code>/done &lt;task_id&gt;</code>\nGet IDs with /tasks", { parse_mode: "HTML" });
   }
-  markTaskDone(id);
+  await markTaskDone(id);
   bot.sendMessage(msg.chat.id, `✅ Task #${id} marked as done!`, { parse_mode: "HTML" });
 });
 
 // /remind <name|all> — show pending tasks for a person or everyone
-bot.onText(/\/remind(?:\s+(.+))?/, (msg, match) => {
+bot.onText(/\/remind(?:\s+(.+))?/, async (msg, match) => {
   const name = match && match[1] ? match[1].trim() : null;
   if (!name) {
     return bot.sendMessage(msg.chat.id,
@@ -471,7 +471,7 @@ bot.onText(/\/remind(?:\s+(.+))?/, (msg, match) => {
   }
 
   if (name.toLowerCase() === "all") {
-    const tasks = getPendingTasks();
+    const tasks = await getPendingTasks();
     if (!tasks.length) return bot.sendMessage(msg.chat.id, "✅ No pending tasks for anyone!");
     const grouped = {};
     tasks.forEach((t) => { (grouped[t.person] = grouped[t.person] || []).push(t); });
@@ -487,7 +487,7 @@ bot.onText(/\/remind(?:\s+(.+))?/, (msg, match) => {
     return bot.sendMessage(msg.chat.id, lines.join("\n"), { parse_mode: "HTML" });
   }
 
-  const tasks = getTasksByPerson(name);
+  const tasks = await getTasksByPerson(name);
   if (!tasks.length) {
     return bot.sendMessage(msg.chat.id,
       `✅ No pending tasks found for <b>${name}</b>.`,

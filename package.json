@@ -15,6 +15,7 @@
   "dependencies": {
     "@azure/identity": "^4.13.0",
     "@google/generative-ai": "^0.24.1",
+    "@libsql/client": "^0.17.0",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "axios": "^1.6.0",
     "better-sqlite3": "^12.6.2",
