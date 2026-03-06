@@ -21,6 +21,11 @@ else console.log("\uD83D\uDD17 Bot running in webhook mode (Render)");
 const meetSessions = new Map();
 // In-memory state for /cancelmeeting: chatId -> { events: [...] }
 const cancelSessions = new Map();
+// In-memory state for /addtask wizard: chatId -> { step, person, task }
+const addTaskSessions = new Map();
+
+// Page size for /tasks pagination
+const TASKS_PAGE_SIZE = 5;
 
 // ── Wizard parse helpers ─────────────────────────────────────────
 function parseDateStr(input, tz) {
@@ -174,9 +179,10 @@ bot.onText(/\/start/, (msg) => {
 
 // /cancel — abort any active wizard
 bot.onText(/\/cancel/, (msg) => {
-  const hadMeet = meetSessions.delete(msg.chat.id);
-  const hadCancel = cancelSessions.delete(msg.chat.id);
-  if (hadMeet || hadCancel) {
+  const hadMeet    = meetSessions.delete(msg.chat.id);
+  const hadCancel  = cancelSessions.delete(msg.chat.id);
+  const hadAddTask = addTaskSessions.delete(msg.chat.id);
+  if (hadMeet || hadCancel || hadAddTask) {
     bot.sendMessage(msg.chat.id, "❌ Operation cancelled.", { parse_mode: "HTML" });
   }
 });
@@ -456,41 +462,96 @@ bot.onText(/\/summary(?:\s+(.+))?/, async (msg, match) => {
     { parse_mode: "HTML" });
 });
 
-// /tasks — show pending action items from DB with inline ✅ buttons
-bot.onText(/\/tasks/, async (msg) => {
+// Helper: build a paginated tasks message + keyboard for the given page
+async function buildTasksPage(page) {
   const tasks = await getPendingTasks();
-  if (!tasks.length) {
-    return bot.sendMessage(msg.chat.id, "✅ No pending tasks! All caught up.", { parse_mode: "HTML" });
-  }
-  const lines = ["<b>📋 Pending Tasks</b>", ""];
+  if (!tasks.length) return null;
+  const totalPages = Math.ceil(tasks.length / TASKS_PAGE_SIZE);
+  const p = Math.max(0, Math.min(page, totalPages - 1));
+  const slice = tasks.slice(p * TASKS_PAGE_SIZE, (p + 1) * TASKS_PAGE_SIZE);
+  const lines = [`<b>📋 Pending Tasks</b>  <i>(${tasks.length} total • page ${p + 1}/${totalPages})</i>`, ""];
   const keyboard = [];
-  tasks.forEach((t, i) => {
+  slice.forEach((t, i) => {
+    const num = p * TASKS_PAGE_SIZE + i + 1;
     const deadline = t.deadline ? `  📅 <i>${t.deadline}</i>` : "";
-    lines.push(`${i + 1}. <b>${t.person}</b> — ${t.task}${deadline}`);
+    lines.push(`${num}. <b>${t.person}</b> — ${t.task}${deadline}`);
     lines.push(`   <i>${t.meeting_subject}</i>  <code>/done ${t.id}</code>`);
     lines.push("");
     keyboard.push([{ text: `✅ Done: ${t.task.substring(0, 35)}`, callback_data: `done_${t.id}` }]);
   });
-  bot.sendMessage(msg.chat.id, lines.join("\n"), {
+  const navRow = [];
+  if (p > 0)              navRow.push({ text: "◀ Prev", callback_data: `tp_${p - 1}` });
+  if (totalPages > 1)     navRow.push({ text: `${p + 1} / ${totalPages}`, callback_data: "tp_noop" });
+  if (p < totalPages - 1) navRow.push({ text: "Next ►", callback_data: `tp_${p + 1}` });
+  if (navRow.length) keyboard.push(navRow);
+  return { text: lines.join("\n"), keyboard };
+}
+
+// /tasks — show pending action items from DB with inline ✅ buttons
+bot.onText(/\/tasks/, async (msg) => {
+  const result = await buildTasksPage(0);
+  if (!result) {
+    return bot.sendMessage(msg.chat.id, "✅ No pending tasks! All caught up.", { parse_mode: "HTML" });
+  }
+  bot.sendMessage(msg.chat.id, result.text, {
     parse_mode: "HTML",
-    reply_markup: { inline_keyboard: keyboard },
+    reply_markup: { inline_keyboard: result.keyboard },
   });
 });
 
-// Inline button: tap ✅ to mark a task done
+// Inline button: tap ✅ to mark a task done, or navigate task pages
 bot.on("callback_query", async (query) => {
   const data = query.data || "";
+
+  // Task page navigation
+  if (data === "tp_noop") {
+    return bot.answerCallbackQuery(query.id);
+  }
+  if (data.startsWith("tp_")) {
+    const page = parseInt(data.slice(3), 10);
+    if (isNaN(page)) return bot.answerCallbackQuery(query.id);
+    const result = await buildTasksPage(page);
+    bot.answerCallbackQuery(query.id);
+    if (!result) {
+      return bot.editMessageText("✅ No pending tasks! All caught up.", {
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id,
+        parse_mode: "HTML",
+      }).catch(() => {});
+    }
+    return bot.editMessageText(result.text, {
+      chat_id: query.message.chat.id,
+      message_id: query.message.message_id,
+      parse_mode: "HTML",
+      reply_markup: { inline_keyboard: result.keyboard },
+    }).catch(() => {});
+  }
+
+  // Mark task done
   if (!data.startsWith("done_")) return;
   const id = parseInt(data.split("_")[1]);
   if (isNaN(id)) return;
   await markTaskDone(id);
   bot.answerCallbackQuery(query.id, { text: `✅ Task #${id} marked done!` });
-  const remaining = (query.message.reply_markup?.inline_keyboard || [])
-    .filter(row => !row.some(btn => btn.callback_data === data));
-  bot.editMessageReplyMarkup(
-    { inline_keyboard: remaining },
-    { chat_id: query.message.chat.id, message_id: query.message.message_id }
-  ).catch(() => {});
+  // Refresh the page with updated task list
+  const currentText = query.message.text || "";
+  const pageMatch = currentText.match(/page (\d+)\/(\d+)/);
+  const currentPage = pageMatch ? parseInt(pageMatch[1], 10) - 1 : 0;
+  const result = await buildTasksPage(currentPage);
+  if (!result) {
+    bot.editMessageText("✅ All tasks done! Great work.", {
+      chat_id: query.message.chat.id,
+      message_id: query.message.message_id,
+      parse_mode: "HTML",
+    }).catch(() => {});
+    return;
+  }
+  bot.editMessageText(result.text, {
+    chat_id: query.message.chat.id,
+    message_id: query.message.message_id,
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: result.keyboard },
+  }).catch(() => {});
 });
 
 // /done <id> — mark a task as done
@@ -658,13 +719,14 @@ bot.onText(/\/upcoming/, async (msg) => {
   }
 });
 
-// /addtask — manually add a task not tied to a meeting
-// Format: /addtask Person | Task description | deadline (optional)
+// /addtask — start multi-step wizard, or one-liner: Person | Task | Deadline
 bot.onText(/\/addtask(?:\s+([\s\S]+))?/, async (msg, match) => {
   const input = match && match[1] ? match[1].trim() : "";
   if (!input) {
+    // Start interactive wizard
+    addTaskSessions.set(msg.chat.id, { step: "person" });
     return bot.sendMessage(msg.chat.id,
-      "<b>➕ Add a Manual Task</b>\n\nFormat:\n<code>/addtask Person | Task description | deadline</code>\n\nExamples:\n<code>/addtask Vivin | Send report to client | by Friday</code>\n<code>/addtask Ashwin | Update docs</code>",
+      "➕ <b>New Task — Step 1/3</b>\n\n<b>Who is this task for?</b>\n<i>Type the person's name, or /cancel to abort.</i>",
       { parse_mode: "HTML" });
   }
   const parts = input.split("|").map(s => s.trim());
@@ -676,7 +738,7 @@ bot.onText(/\/addtask(?:\s+([\s\S]+))?/, async (msg, match) => {
   const [person, task, deadline = ""] = parts;
   await saveTask("manual", "Manual Task", person, task, deadline);
   bot.sendMessage(msg.chat.id,
-    `✅ <b>Task added!</b>\n\n👤 <b>${person}</b>\n📋 ${task}${deadline ? `\n⏳ ${deadline}` : ""}`,
+    `✅ <b>Task added!</b>\n\n👤 <b>${person}</b>\n📋 ${task}${deadline ? `\n📅 ${deadline}` : ""}`,
     { parse_mode: "HTML" });
 });
 
@@ -918,6 +980,34 @@ bot.onText(/\/attendance(?:\s+([\s\S]+))?/, async (msg, match) => {
   }
 });
 
+// /addtask wizard step handler
+function handleAddTaskWizard(msg, session, text) {
+  const chatId = msg.chat.id;
+  if (session.step === "person") {
+    session.person = text.trim();
+    session.step = "task";
+    return bot.sendMessage(chatId,
+      `👤 <b>${session.person}</b>\n\n➕ <b>Step 2/3 — What's the task?</b>\n<i>Describe what needs to be done.</i>`,
+      { parse_mode: "HTML" });
+  }
+  if (session.step === "task") {
+    session.task = text.trim();
+    session.step = "deadline";
+    return bot.sendMessage(chatId,
+      `📋 <b>${session.task}</b>\n\n➕ <b>Step 3/3 — Deadline?</b>\n<i>e.g. "by Friday", "10 Mar", or type <code>none</code> to skip.</i>`,
+      { parse_mode: "HTML" });
+  }
+  if (session.step === "deadline") {
+    const deadline = /^(none|skip|-)$/i.test(text.trim()) ? "" : text.trim();
+    addTaskSessions.delete(chatId);
+    saveTask("manual", "Manual Task", session.person, session.task, deadline)
+      .then(() => bot.sendMessage(chatId,
+        `✅ <b>Task saved!</b>\n\n👤 <b>${session.person}</b>\n📋 ${session.task}${deadline ? `\n📅 ${deadline}` : ""}\n\n<i>View all tasks with /tasks</i>`,
+        { parse_mode: "HTML" }))
+      .catch((err) => bot.sendMessage(chatId, "❌ Failed to save task: " + err.message));
+  }
+}
+
 // Message handler: route to active wizard, otherwise log
 bot.on("message", (msg) => {
   const text = (msg.text || "").trim();
@@ -928,6 +1018,9 @@ bot.on("message", (msg) => {
 
   const cancelSession = cancelSessions.get(msg.chat.id);
   if (cancelSession) { handleCancelSelection(msg, cancelSession, text); return; }
+
+  const addTaskSession = addTaskSessions.get(msg.chat.id);
+  if (addTaskSession) { handleAddTaskWizard(msg, addTaskSession, text); return; }
 
   console.log(`[${msg.chat.type}] ${msg.from.username || msg.from.first_name}: ${text}`);
 });
