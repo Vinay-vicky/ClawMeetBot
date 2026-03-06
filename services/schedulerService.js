@@ -90,7 +90,38 @@ function startScheduler() {
     }
   });
 
-  console.log("✅ Scheduler started — smart reminders active (10min / 1hr / 1day)");
+  // Daily meeting digest at 9:00 AM local timezone
+  cron.schedule("0 9 * * *", async () => {
+    const tz = TZ();
+    const now = new Date();
+    const startOfDay = new Date(now.toLocaleDateString("en-CA", { timeZone: tz }) + "T00:00:00");
+    const endOfDay   = new Date(now.toLocaleDateString("en-CA", { timeZone: tz }) + "T23:59:59");
+    const minsBack   = Math.ceil((now - startOfDay) / 60000);
+    const minsAhead  = Math.ceil((endOfDay - now) / 60000);
+
+    const events = await getScheduledMeetings(-minsBack, minsAhead).catch(() => []);
+    const dateLabel = now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: tz });
+
+    if (!events.length) {
+      sendToGroup(`☀️ <b>Good morning!</b>\n\n<i>No meetings scheduled for ${dateLabel}. Enjoy the free day!</i>`);
+      return;
+    }
+
+    const lines = [`☀️ <b>Good morning! Schedule for ${dateLabel}</b>`, ""];
+    events.forEach((e, i) => {
+      const start = new Date((e.start.dateTime || e.start.date).replace(/Z?$/, "Z"));
+      const end   = new Date((e.end.dateTime   || e.end.date).replace(/Z?$/, "Z"));
+      const startStr = start.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: tz });
+      const endStr   = end.toLocaleTimeString("en-IN",   { hour: "2-digit", minute: "2-digit", timeZone: tz });
+      const url = (e.onlineMeeting && e.onlineMeeting.joinUrl) || e.webLink;
+      lines.push(`${i + 1}. <b>${(e.subject || "Meeting").trim()}</b>  🕐 ${startStr}–${endStr}`);
+      if (url) lines.push(`   🔗 <a href="${url}">Join</a>`);
+    });
+    lines.push("", `<i>${events.length} meeting${events.length > 1 ? "s" : ""} today · /today for details</i>`);
+    sendToGroup(lines.join("\n"));
+  }, { timezone: TZ() });
+
+  console.log("✅ Scheduler started — smart reminders active (10min / 1hr / 1day) + daily digest at 9 AM");
 }
 
 module.exports = { startScheduler };

@@ -1,5 +1,6 @@
 const TelegramBot = require("node-telegram-bot-api");
-const { getRecentMeetings, getPendingTasks, markTaskDone, getMeetingByKeyword, getTasksByPerson } = require("./dbService");
+const { getRecentMeetings, getPendingTasks, markTaskDone, getMeetingByKeyword, getTasksByPerson,
+        saveTask, getMeetingStats, getTaskStats, addMeetingNote, getNotesByMeetingId } = require("./dbService");
 const { getScheduledMeetings, createTeamsMeeting, deleteCalendarEvent } = require("./calendarService");
 
 if (!process.env.TELEGRAM_BOT_TOKEN) {
@@ -139,21 +140,27 @@ bot.onText(/\/start/, (msg) => {
     "/current — Meeting happening right now",
     "/next — Next scheduled meeting + join link",
     "/today — All meetings scheduled today",
+    "/week — Full week schedule grouped by day",
     "/upcoming — Next 5 meetings (7-day view)",
     "/history — Last 5 past meetings",
     "",
     "<b>✅ Task Commands</b>",
-    "/tasks — Pending action items from meetings",
+    "/tasks — Pending action items (tap to complete)",
+    "/addtask — Manually add a task",
     "/done &lt;id&gt; — Mark a task complete (e.g. /done 3)",
+    "/remind &lt;name&gt; — Tasks for a person (or 'all')",
+    "/stats — Meeting and task statistics",
     "",
-    "<b>� Create / Cancel Meetings</b>",
+    "<b>🗓 Create / Cancel Meetings</b>",
     "/meet — Guided Teams meeting creator",
     "/meet Title date time duration — One-line shortcut",
     "/cancelmeeting — Cancel a scheduled Teams meeting",
     "/cancel — Abort any active wizard",
     "",
-    "<b>📝 AI Meeting Minutes</b>",
+    "<b>📝 AI Meeting Minutes & Notes</b>",
     "/summary &lt;name&gt; — Re-show AI summary of a past meeting",
+    "/notes &lt;name&gt; — View meeting notes",
+    "/notes &lt;name&gt; | &lt;text&gt; — Add a note",
     "/remind &lt;name&gt; — Tasks for a person (or 'all')",
     "",
     "/help — Show this menu again",
@@ -370,14 +377,18 @@ bot.onText(/\/help/, (msg) => {
     "/current — Meeting happening right now",
     "/next — Next meeting + join link",
     "/today — All meetings today",
+    "/week — Full week grouped by day",
     "/upcoming — Next 5 meetings (7 days)",
     "/history — Last 5 past meetings",
     "/summary &lt;name&gt; — Re-show AI summary of a past meeting",
+    "/notes &lt;name&gt; — View or add notes to a meeting",
     "",
     "<b>✅ Tasks</b>",
-    "/tasks — Show pending action items",
+    "/tasks — Show pending action items (tap to complete)",
+    "/addtask — Manually add a task",
     "/done &lt;id&gt; — Mark a task done (e.g. /done 3)",
     "/remind &lt;name&gt; — Show tasks for a person (or 'all')",
+    "/stats — Meeting and task statistics",
     "",
     "<b>🗓 Create / Cancel Meetings</b>",
     "/meet — Guided Teams meeting creator",
@@ -435,20 +446,41 @@ bot.onText(/\/summary(?:\s+(.+))?/, async (msg, match) => {
     { parse_mode: "HTML" });
 });
 
-// /tasks — show pending action items from DB
+// /tasks — show pending action items from DB with inline ✅ buttons
 bot.onText(/\/tasks/, async (msg) => {
   const tasks = await getPendingTasks();
   if (!tasks.length) {
     return bot.sendMessage(msg.chat.id, "✅ No pending tasks! All caught up.", { parse_mode: "HTML" });
   }
   const lines = ["<b>📋 Pending Tasks</b>", ""];
+  const keyboard = [];
   tasks.forEach((t, i) => {
     const deadline = t.deadline ? ` ⏳ ${t.deadline}` : "";
     lines.push(`${i + 1}. <b>${t.person}</b> — ${t.task}${deadline}`);
-    lines.push(`   <i>${t.meeting_subject}</i>  <code>/done ${t.id}</code>`);
+    lines.push(`   <i>${t.meeting_subject}</i>`);
     lines.push("");
+    keyboard.push([{ text: `✅ Done: ${t.task.substring(0, 35)}`, callback_data: `done_${t.id}` }]);
   });
-  bot.sendMessage(msg.chat.id, lines.join("\n"), { parse_mode: "HTML" });
+  bot.sendMessage(msg.chat.id, lines.join("\n"), {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: keyboard },
+  });
+});
+
+// Inline button: tap ✅ to mark a task done
+bot.on("callback_query", async (query) => {
+  const data = query.data || "";
+  if (!data.startsWith("done_")) return;
+  const id = parseInt(data.split("_")[1]);
+  if (isNaN(id)) return;
+  await markTaskDone(id);
+  bot.answerCallbackQuery(query.id, { text: `✅ Task #${id} marked done!` });
+  const remaining = (query.message.reply_markup?.inline_keyboard || [])
+    .filter(row => !row.some(btn => btn.callback_data === data));
+  bot.editMessageReplyMarkup(
+    { inline_keyboard: remaining },
+    { chat_id: query.message.chat.id, message_id: query.message.message_id }
+  ).catch(() => {});
 });
 
 // /done <id> — mark a task as done
@@ -613,6 +645,135 @@ bot.onText(/\/upcoming/, async (msg) => {
     bot.sendMessage(msg.chat.id, text, { parse_mode: "HTML", disable_web_page_preview: true });
   } catch (err) {
     bot.sendMessage(msg.chat.id, "❌ Could not fetch upcoming meetings: " + err.message);
+  }
+});
+
+// /addtask — manually add a task not tied to a meeting
+// Format: /addtask Person | Task description | deadline (optional)
+bot.onText(/\/addtask(?:\s+([\s\S]+))?/, async (msg, match) => {
+  const input = match && match[1] ? match[1].trim() : "";
+  if (!input) {
+    return bot.sendMessage(msg.chat.id,
+      "<b>➕ Add a Manual Task</b>\n\nFormat:\n<code>/addtask Person | Task description | deadline</code>\n\nExamples:\n<code>/addtask Vivin | Send report to client | by Friday</code>\n<code>/addtask Ashwin | Update docs</code>",
+      { parse_mode: "HTML" });
+  }
+  const parts = input.split("|").map(s => s.trim());
+  if (parts.length < 2 || !parts[0] || !parts[1]) {
+    return bot.sendMessage(msg.chat.id,
+      "❌ Use <code>|</code> to separate: <code>/addtask Person | Task | Deadline</code>",
+      { parse_mode: "HTML" });
+  }
+  const [person, task, deadline = ""] = parts;
+  await saveTask("manual", "Manual Task", person, task, deadline);
+  bot.sendMessage(msg.chat.id,
+    `✅ <b>Task added!</b>\n\n👤 <b>${person}</b>\n📋 ${task}${deadline ? `\n⏳ ${deadline}` : ""}`,
+    { parse_mode: "HTML" });
+});
+
+// /week — all meetings grouped by day for the next 7 days
+bot.onText(/\/week/, async (msg) => {
+  try {
+    const tz = process.env.TIMEZONE || "Asia/Kolkata";
+    const events = await getScheduledMeetings(0, 10080);
+    if (!events.length) {
+      return bot.sendMessage(msg.chat.id, "📭 No meetings in the next 7 days.", { parse_mode: "HTML" });
+    }
+    const grouped = {};
+    for (const e of events) {
+      const start = new Date((e.start.dateTime || e.start.date).replace(/Z?$/, "Z"));
+      const key = start.toLocaleDateString("en-CA", { timeZone: tz });
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(e);
+    }
+    const lines = ["<b>📆 Week Ahead</b>", ""];
+    for (const [key, dayEvents] of Object.entries(grouped).sort()) {
+      const label = new Date(key + "T12:00:00Z").toLocaleDateString("en-IN", {
+        weekday: "long", day: "numeric", month: "short", timeZone: "UTC",
+      });
+      lines.push(`<b>📅 ${label}</b>`);
+      dayEvents.forEach((e) => {
+        const s  = new Date((e.start.dateTime || e.start.date).replace(/Z?$/, "Z"));
+        const en = new Date((e.end.dateTime   || e.end.date).replace(/Z?$/, "Z"));
+        const sStr  = s.toLocaleTimeString("en-IN",  { hour: "2-digit", minute: "2-digit", timeZone: tz });
+        const eStr  = en.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: tz });
+        const url   = e.onlineMeeting?.joinUrl || e.webLink;
+        lines.push(`  • <b>${(e.subject || "Meeting").trim()}</b>  🕐 ${sStr}–${eStr}${url ? `  <a href="${url}">Join</a>` : ""}`);
+      });
+      lines.push("");
+    }
+    bot.sendMessage(msg.chat.id, lines.join("\n"), { parse_mode: "HTML", disable_web_page_preview: true });
+  } catch (err) {
+    bot.sendMessage(msg.chat.id, "❌ Could not fetch week schedule: " + err.message);
+  }
+});
+
+// /notes — view or add notes to a meeting
+// View: /notes sprint planning
+// Add:  /notes sprint planning | Client wants feature X by Q2
+bot.onText(/\/notes(?:\s+([\s\S]+))?/, async (msg, match) => {
+  const input = match && match[1] ? match[1].trim() : "";
+  if (!input) {
+    return bot.sendMessage(msg.chat.id,
+      "<b>📝 Meeting Notes</b>\n\n👁 View: <code>/notes &lt;meeting name&gt;</code>\n➕ Add:  <code>/notes &lt;meeting name&gt; | &lt;your note&gt;</code>\n\nExample:\n<code>/notes sprint | Client wants feature X by Q2</code>",
+      { parse_mode: "HTML" });
+  }
+  const pipeIdx = input.indexOf("|");
+  if (pipeIdx !== -1) {
+    const keyword  = input.substring(0, pipeIdx).trim();
+    const noteText = input.substring(pipeIdx + 1).trim();
+    if (!keyword || !noteText) {
+      return bot.sendMessage(msg.chat.id, "❌ Both meeting name and note text are required.", { parse_mode: "HTML" });
+    }
+    const meetings = await getMeetingByKeyword(keyword);
+    if (!meetings.length) {
+      return bot.sendMessage(msg.chat.id, `📭 No meeting found matching "<b>${keyword}</b>".`, { parse_mode: "HTML" });
+    }
+    await addMeetingNote(meetings[0].id, meetings[0].subject, noteText);
+    bot.sendMessage(msg.chat.id,
+      `✅ Note saved for <b>${meetings[0].subject}</b>:\n\n<i>"${noteText}"</i>`,
+      { parse_mode: "HTML" });
+  } else {
+    const meetings = await getMeetingByKeyword(input);
+    if (!meetings.length) {
+      return bot.sendMessage(msg.chat.id, `📭 No meeting found matching "<b>${input}</b>".`, { parse_mode: "HTML" });
+    }
+    const meeting = meetings[0];
+    const notes = await getNotesByMeetingId(meeting.id);
+    if (!notes.length) {
+      return bot.sendMessage(msg.chat.id,
+        `📭 No notes yet for <b>${meeting.subject}</b>.\n\nAdd one:\n<code>/notes ${input} | your note here</code>`,
+        { parse_mode: "HTML" });
+    }
+    const tz = process.env.TIMEZONE || "Asia/Kolkata";
+    const lines = [`📝 <b>Notes: ${meeting.subject}</b>`, ""];
+    notes.forEach((n, i) => {
+      const ts = new Date(n.created_at.replace(/Z?$/, "Z")).toLocaleDateString("en-IN",
+        { day: "numeric", month: "short", timeZone: tz });
+      lines.push(`${i + 1}. ${n.note}`);
+      lines.push(`   <i>${ts}</i>`, "");
+    });
+    bot.sendMessage(msg.chat.id, lines.join("\n"), { parse_mode: "HTML" });
+  }
+});
+
+// /stats — meeting and task statistics
+bot.onText(/\/stats/, async (msg) => {
+  try {
+    const [meet, tasks] = await Promise.all([getMeetingStats(), getTaskStats()]);
+    bot.sendMessage(msg.chat.id, [
+      "📊 <b>ClawMeetBot Stats</b>",
+      "",
+      "<b>📅 Meetings</b>",
+      `• This week: <b>${meet.thisWeek}</b>`,
+      `• All time tracked: <b>${meet.total}</b>`,
+      "",
+      "<b>✅ Tasks</b>",
+      `• Pending: <b>${tasks.pending}</b>`,
+      `• Completed this month: <b>${tasks.doneThisMonth}</b>`,
+      `• Total tracked: <b>${tasks.total}</b>`,
+    ].join("\n"), { parse_mode: "HTML" });
+  } catch (err) {
+    bot.sendMessage(msg.chat.id, "❌ Could not fetch stats: " + err.message);
   }
 });
 

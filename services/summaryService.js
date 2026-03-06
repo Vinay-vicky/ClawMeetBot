@@ -2,7 +2,7 @@ const { analyzeMeeting, generateMeetingSummary } = require("./aiSummaryService")
 const fetch = require("node-fetch");
 const { ClientSecretCredential } = require("@azure/identity");
 const { saveSummary, hasReminderBeenSent, markReminderSent, saveTask } = require("./dbService");
-const { sendToGroup } = require("./telegramService");
+const { sendToGroup, bot } = require("./telegramService");
 
 /** Get a Graph API access token */
 async function getToken() {
@@ -155,6 +155,18 @@ async function processMeetingEnd(event) {
       `<i>Enable recording in Teams settings to get automatic AI summaries.</i>`,
     ].join("\n"));
   }
+
+  // Feedback poll — sent 10 seconds after the end message
+  setTimeout(() => {
+    const groupId = process.env.TELEGRAM_GROUP_ID;
+    if (!groupId) return;
+    bot.sendPoll(
+      groupId,
+      `📊 How was the meeting: "${subject}"?`,
+      ["👍 Great", "👌 OK", "👎 Could be better"],
+      { is_anonymous: false }
+    ).catch((e) => console.error("❌ Poll send failed:", e.message));
+  }, 10000);
 }
 
 module.exports = { processMeetingEnd };

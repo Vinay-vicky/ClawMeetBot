@@ -42,6 +42,14 @@ async function initDb() {
       done            INTEGER DEFAULT 0,
       created_at      TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS notes (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id      TEXT,
+      meeting_subject TEXT,
+      note            TEXT,
+      created_at      TEXT DEFAULT (datetime('now'))
+    );
   `);
   console.log("✅ Database ready" + (process.env.TURSO_DATABASE_URL ? " (Turso cloud)" : " (local SQLite)"));
 }
@@ -143,10 +151,53 @@ async function getTasksByPerson(person) {
   return res.rows;
 }
 
+/** Meeting count stats */
+async function getMeetingStats() {
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const [thisWeek, total] = await Promise.all([
+    db.execute({ sql: "SELECT COUNT(*) as count FROM meetings WHERE start_time >= ?", args: [weekAgo] }),
+    db.execute("SELECT COUNT(*) as count FROM meetings"),
+  ]);
+  return { thisWeek: thisWeek.rows[0].count, total: total.rows[0].count };
+}
+
+/** Task count stats */
+async function getTaskStats() {
+  const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const [pending, doneThisMonth, total] = await Promise.all([
+    db.execute("SELECT COUNT(*) as count FROM tasks WHERE done = 0"),
+    db.execute({ sql: "SELECT COUNT(*) as count FROM tasks WHERE done = 1 AND created_at >= ?", args: [monthAgo] }),
+    db.execute("SELECT COUNT(*) as count FROM tasks"),
+  ]);
+  return {
+    pending: pending.rows[0].count,
+    doneThisMonth: doneThisMonth.rows[0].count,
+    total: total.rows[0].count,
+  };
+}
+
+/** Add a manual note to a meeting */
+async function addMeetingNote(meetingId, meetingSubject, note) {
+  await db.execute({
+    sql: "INSERT INTO notes (meeting_id, meeting_subject, note) VALUES (?, ?, ?)",
+    args: [meetingId, meetingSubject, note],
+  });
+}
+
+/** Fetch all notes for a meeting */
+async function getNotesByMeetingId(meetingId) {
+  const res = await db.execute({
+    sql: "SELECT * FROM notes WHERE meeting_id = ? ORDER BY created_at DESC",
+    args: [meetingId],
+  });
+  return res.rows;
+}
+
 module.exports = {
   initDb,
   saveMeeting, hasReminderBeenSent, markReminderSent, saveSummary,
   getRecentMeetings, saveTask, getPendingTasks, markTaskDone,
   getMeetingByKeyword, getTasksByPerson,
+  getMeetingStats, getTaskStats, addMeetingNote, getNotesByMeetingId,
 };
 
