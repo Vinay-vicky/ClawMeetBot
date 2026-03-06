@@ -101,7 +101,22 @@ function markTaskDone(id) {
   db.prepare("UPDATE tasks SET done = 1 WHERE id = ?").run(id);
 }
 
+/** Search past meetings by keyword in subject */
+function getMeetingByKeyword(keyword) {
+  return db.prepare(
+    "SELECT * FROM meetings WHERE LOWER(subject) LIKE LOWER(?) ORDER BY start_time DESC LIMIT 5"
+  ).all(`%${keyword}%`);
+}
+
+/** Get pending tasks assigned to a specific person (case-insensitive) */
+function getTasksByPerson(person) {
+  return db.prepare(
+    "SELECT * FROM tasks WHERE done = 0 AND LOWER(person) LIKE LOWER(?) ORDER BY created_at DESC"
+  ).all(`%${person}%`);
+}
+
 module.exports = {
   saveMeeting, hasReminderBeenSent, markReminderSent, saveSummary,
   getRecentMeetings, saveTask, getPendingTasks, markTaskDone,
+  getMeetingByKeyword, getTasksByPerson,
 };

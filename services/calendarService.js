@@ -152,4 +152,32 @@ async function createTeamsMeeting(subject, dateStr, timeStr, durationMins, atten
   return await response.json();
 }
 
-module.exports = { getUpcomingMeetings, getScheduledMeetings, createTeamsMeeting };
+/**
+ * Delete a calendar event (cancel a Teams meeting).
+ */
+async function deleteCalendarEvent(eventId) {
+  const tenantId = process.env.TEAMS_TENANT_ID;
+  const clientId = process.env.TEAMS_APP_ID;
+  const clientSecret = process.env.TEAMS_APP_PASSWORD;
+  const userEmail = process.env.OUTLOOK_USER_EMAIL;
+
+  if (!tenantId || !clientId || !clientSecret || !userEmail) {
+    throw new Error("Missing Graph API credentials in environment variables");
+  }
+
+  const credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+  const tokenResponse = await credential.getToken("https://graph.microsoft.com/.default");
+  const accessToken = tokenResponse.token;
+
+  const response = await fetch(
+    `https://graph.microsoft.com/v1.0/users/${userEmail}/events/${eventId}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!response.ok && response.status !== 204) {
+    const errText = await response.text();
+    throw new Error(errText);
+  }
+}
+
+module.exports = { getUpcomingMeetings, getScheduledMeetings, createTeamsMeeting, deleteCalendarEvent };
