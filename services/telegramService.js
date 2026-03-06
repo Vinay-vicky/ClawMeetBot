@@ -303,6 +303,8 @@ async function handleMeetWizard(msg, session, text) {
         attendees.length ? `\uD83D\uDC65 ${attendees.join(", ")}` : "",
         "",
         `\uD83D\uDD17 <a href="${joinUrl}">Join Meeting</a>`,
+        "",
+        "\uD83D\uDD34 <b>Remember to hit Record</b> when the meeting starts so the AI summary works!",
       ].filter((l) => l !== "");
 
       const message = lines.join("\n");

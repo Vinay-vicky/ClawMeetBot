@@ -129,6 +129,10 @@ async function createTeamsMeeting(subject, dateStr, timeStr, durationMins, atten
     end:   { dateTime: `${endDateStr}T${endTimeStr}:00`, timeZone: tz },
     isOnlineMeeting: true,
     onlineMeetingProvider: "teamsForBusiness",
+    body: {
+      contentType: "html",
+      content: "<p>This meeting was scheduled via <b>ClawMeetBot</b>.</p><p>🔴 <b>Please record this meeting</b> so an AI summary and action items can be auto-generated for the team.</p><p>To record: click the <b>More &gt; Start recording</b> button when the meeting starts in Teams.</p>",
+    },
     attendees: attendeeEmails.map((email) => ({
       emailAddress: { address: email.trim() },
       type: "required",
