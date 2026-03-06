@@ -9,7 +9,11 @@ if (!process.env.TELEGRAM_BOT_TOKEN) {
 
 console.log("✅ Token loaded:", process.env.TELEGRAM_BOT_TOKEN.substring(0, 10) + "...");
 
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+// Use polling locally, webhook on Render (avoids 409 conflict with cloud)
+const isProduction = !!process.env.RENDER_EXTERNAL_URL;
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, isProduction ? {} : { polling: true });
+if (!isProduction) console.log("\uD83D\uDD04 Bot running in polling mode (local dev)");
+else console.log("\uD83D\uDD17 Bot running in webhook mode (Render)");
 
 // In-memory state for /meet wizard: chatId -> { step, data }
 const meetSessions = new Map();

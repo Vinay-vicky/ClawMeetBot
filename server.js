@@ -1,8 +1,7 @@
 require("dotenv").config({ path: require("path").resolve(__dirname, ".env") });
 const express = require("express");
-const { sendToGroup, generateMeetLink } = require("./services/telegramService");
+const { sendToGroup, bot } = require("./services/telegramService");
 const { startScheduler } = require("./services/schedulerService");
-const { formatMeetingMessage } = require("./utils/formatter");
 const { getMeetings } = require("./services/teamsService");
 const { generateMeetingSummary } = require("./services/aiSummaryService");
 
@@ -40,14 +39,6 @@ app.get("/", (req, res) => {
 app.get("/test", (req, res) => {
   sendToGroup("🚀 ClawMeetBot test broadcast to group!");
   res.send("Sent!");
-});
-
-// Manually trigger a meeting link broadcast
-app.get("/meet", (req, res) => {
-  const link = generateMeetLink();
-  const message = formatMeetingMessage(link);
-  sendToGroup(message);
-  res.json({ ok: true, link });
 });
 
 // Fetch meetings from Microsoft Teams/Outlook calendar
@@ -156,6 +147,12 @@ app.post("/done", (req, res) => {
   res.json({ ok: true, message: `Task ${id} marked done` });
 });
 
+// Telegram webhook endpoint (used on Render instead of polling)
+app.post(`/webhook/telegram/${process.env.TELEGRAM_BOT_TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
 // Microsoft Teams webhook → forward meeting info to Telegram
 app.post("/webhook/teams", (req, res) => {
   try {
@@ -194,12 +191,18 @@ const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   startScheduler();
 
-  // Keep-alive: ping self every 14 minutes so Render free tier doesn't spin down
   const appUrl = process.env.RENDER_EXTERNAL_URL;
   if (appUrl) {
-    const http = require("https");
+    // Set Telegram webhook so Render receives updates instead of polling
+    const webhookUrl = `${appUrl}/webhook/telegram/${process.env.TELEGRAM_BOT_TOKEN}`;
+    bot.setWebHook(webhookUrl)
+      .then(() => console.log(`✅ Telegram webhook set: ${webhookUrl}`))
+      .catch((err) => console.error("\u274c Failed to set webhook:", err.message));
+
+    // Keep-alive: ping self every 14 minutes so Render free tier doesn't spin down
+    const https = require("https");
     setInterval(() => {
-      http.get(appUrl, (res) => {
+      https.get(appUrl, (res) => {
         console.log(`♻️  Keep-alive ping → ${res.statusCode}`);
       }).on("error", (e) => console.error("Keep-alive error:", e.message));
     }, 14 * 60 * 1000);
