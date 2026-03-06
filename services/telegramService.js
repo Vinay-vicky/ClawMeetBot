@@ -31,6 +31,34 @@ function sendToGroup(message) {
     .catch((err) => console.error("❌ Send error:", err.message));
 }
 
+// /start — welcome message
+bot.onText(/\/start/, (msg) => {
+  const name = msg.from.first_name || "there";
+  const welcome = [
+    `👋 <b>Hey ${name}! Welcome to ClawMeetBot</b>`,
+    "",
+    "I keep your team in sync with Teams/Outlook meetings — reminders, live join links, AI summaries, and task assignments, all right here in Telegram.",
+    "",
+    "<b>📅 Meeting Commands</b>",
+    "/current — Meeting happening right now",
+    "/next — Next scheduled meeting + join link",
+    "/today — All meetings scheduled today",
+    "/upcoming — Next 5 meetings (7-day view)",
+    "/history — Last 5 past meetings",
+    "",
+    "<b>✅ Task Commands</b>",
+    "/tasks — Pending action items from meetings",
+    "/done &lt;id&gt; — Mark a task complete (e.g. /done 3)",
+    "",
+    "<b>🔗 Other</b>",
+    "/meet — Generate an instant meeting link",
+    "/help — Show this menu again",
+    "",
+    "<i>Meetings are auto-fetched from Outlook. Reminders sent 1 day, 1 hour, and 10 min before. AI summary + tasks posted after each meeting ends.</i>",
+  ].join("\n");
+  bot.sendMessage(msg.chat.id, welcome, { parse_mode: "HTML" });
+});
+
 // /meet — generate and broadcast a meeting link
 bot.onText(/\/meet/, (msg) => {
   const link = generateMeetLink();
