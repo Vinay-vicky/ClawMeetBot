@@ -1,6 +1,7 @@
 const TelegramBot = require("node-telegram-bot-api");
 const { getRecentMeetings, getPendingTasks, markTaskDone, getMeetingByKeyword, getTasksByPerson,
-        saveTask, getMeetingStats, getTaskStats, addMeetingNote, getNotesByMeetingId } = require("./dbService");
+        saveTask, getMeetingStats, getTaskStats, addMeetingNote, getNotesByMeetingId,
+        searchTasks, clearDoneTasks, editTask, getTaskById, saveAttendance, getAttendance } = require("./dbService");
 const { getScheduledMeetings, createTeamsMeeting, deleteCalendarEvent } = require("./calendarService");
 
 if (!process.env.TELEGRAM_BOT_TOKEN) {
@@ -402,8 +403,9 @@ bot.onText(/\/help/, (msg) => {
 });
 
 // /history — show recent meetings from DB
-bot.onText(/\/history/, async (msg) => {
-  const meetings = await getRecentMeetings(5);
+bot.onText(/\/history(?:\s+(\d+))?/, async (msg, match) => {
+  const limit = Math.min(parseInt((match && match[1]) || "5", 10), 20);
+  const meetings = await getRecentMeetings(limit);
   if (!meetings.length) {
     return bot.sendMessage(msg.chat.id, "No meeting history yet.");
   }
@@ -774,6 +776,135 @@ bot.onText(/\/stats/, async (msg) => {
     ].join("\n"), { parse_mode: "HTML" });
   } catch (err) {
     bot.sendMessage(msg.chat.id, "❌ Could not fetch stats: " + err.message);
+  }
+});
+
+// /search <keyword> — search pending tasks by keyword
+bot.onText(/\/search(?:\s+(.+))?/, async (msg, match) => {
+  const keyword = match && match[1] ? match[1].trim() : "";
+  if (!keyword) {
+    return bot.sendMessage(msg.chat.id,
+      "Usage: <code>/search &lt;keyword&gt;</code>\nExample: <code>/search login page</code>",
+      { parse_mode: "HTML" });
+  }
+  const tasks = await searchTasks(keyword).catch(() => []);
+  if (!tasks.length) {
+    return bot.sendMessage(msg.chat.id,
+      `🔍 No pending tasks match "<b>${keyword}</b>".`, { parse_mode: "HTML" });
+  }
+  const lines = [`🔍 <b>Tasks matching "${keyword}"</b>`, ""];
+  tasks.forEach((t) => {
+    const dl = t.deadline ? `  📅 ${t.deadline}` : "";
+    lines.push(`• [#${t.id}] <b>${t.person}</b> — ${t.task}${dl}  <code>/done ${t.id}</code>`);
+  });
+  bot.sendMessage(msg.chat.id, lines.join("\n"), { parse_mode: "HTML" });
+});
+
+// /cleardone — remove all completed tasks
+bot.onText(/\/cleardone/, async (msg) => {
+  const count = await clearDoneTasks().catch(() => 0);
+  if (count === 0) {
+    return bot.sendMessage(msg.chat.id, "🗑 No completed tasks to clear.");
+  }
+  bot.sendMessage(msg.chat.id,
+    `✅ Cleared <b>${count}</b> completed task${count !== 1 ? "s" : ""}. All done!`,
+    { parse_mode: "HTML" });
+});
+
+// /edittask <id> <new text> | <new deadline>
+bot.onText(/\/edittask(?:\s+(.+))?/, async (msg, match) => {
+  const input = match && match[1] ? match[1].trim() : "";
+  if (!input) {
+    return bot.sendMessage(msg.chat.id,
+      "<b>✏️ Edit a Task</b>\n\nUsage: <code>/edittask &lt;id&gt; &lt;new text&gt;</code>\nWith deadline: <code>/edittask &lt;id&gt; &lt;new text&gt; | &lt;new deadline&gt;</code>\n\nExample:\n<code>/edittask 3 Finish landing page | by Friday</code>",
+      { parse_mode: "HTML" });
+  }
+  const firstSpace = input.indexOf(" ");
+  if (firstSpace === -1) {
+    return bot.sendMessage(msg.chat.id, "❌ Please provide task id and new text.", { parse_mode: "HTML" });
+  }
+  const idStr = input.substring(0, firstSpace).trim();
+  const rest  = input.substring(firstSpace + 1).trim();
+  const id    = parseInt(idStr, 10);
+  if (isNaN(id)) {
+    return bot.sendMessage(msg.chat.id, `❌ Invalid task id: <code>${idStr}</code>`, { parse_mode: "HTML" });
+  }
+  const existing = await getTaskById(id).catch(() => null);
+  if (!existing) {
+    return bot.sendMessage(msg.chat.id, `❌ No task found with id <b>${id}</b>.`, { parse_mode: "HTML" });
+  }
+  const pipeIdx     = rest.indexOf("|");
+  const newTask     = pipeIdx !== -1 ? rest.substring(0, pipeIdx).trim() : rest.trim();
+  const newDeadline = pipeIdx !== -1 ? rest.substring(pipeIdx + 1).trim() : existing.deadline;
+  if (!newTask) {
+    return bot.sendMessage(msg.chat.id, "❌ Task text cannot be empty.", { parse_mode: "HTML" });
+  }
+  await editTask(id, newTask, newDeadline);
+  bot.sendMessage(msg.chat.id,
+    `✅ Task <b>#${id}</b> updated:\n\n📝 ${newTask}${newDeadline ? `\n📅 Deadline: ${newDeadline}` : ""}`,
+    { parse_mode: "HTML" });
+});
+
+// /export — export all pending tasks as plain text
+bot.onText(/\/export/, async (msg) => {
+  const tasks = await getPendingTasks().catch(() => []);
+  if (!tasks.length) {
+    return bot.sendMessage(msg.chat.id, "📭 No pending tasks to export.");
+  }
+  const lines = ["PENDING TASKS EXPORT", "=".repeat(30), ""];
+  tasks.forEach((t) => {
+    lines.push(`[#${t.id}] ${t.person}`);
+    lines.push(`  Task: ${t.task}`);
+    if (t.deadline) lines.push(`  Due:  ${t.deadline}`);
+    lines.push(`  From: ${t.meeting_subject}`);
+    lines.push("");
+  });
+  lines.push(`Total: ${tasks.length} task${tasks.length !== 1 ? "s" : ""}`);
+  bot.sendMessage(msg.chat.id, `<pre>${lines.join("\n")}</pre>`, { parse_mode: "HTML" });
+});
+
+// /attendance — view or record meeting attendance
+bot.onText(/\/attendance(?:\s+([\s\S]+))?/, async (msg, match) => {
+  const input = match && match[1] ? match[1].trim() : "";
+  if (!input) {
+    return bot.sendMessage(msg.chat.id,
+      "<b>👥 Meeting Attendance</b>\n\n👁 View:  <code>/attendance &lt;meeting name&gt;</code>\n➕ Add:   <code>/attendance &lt;meeting name&gt; | Person1, Person2, ...</code>\n\nExample:\n<code>/attendance sprint | Alice, Bob, Carol</code>",
+      { parse_mode: "HTML" });
+  }
+  const pipeIdx = input.indexOf("|");
+  if (pipeIdx !== -1) {
+    // Add attendance
+    const keyword = input.substring(0, pipeIdx).trim();
+    const persons = input.substring(pipeIdx + 1).split(",").map((p) => p.trim()).filter(Boolean);
+    if (!keyword || !persons.length) {
+      return bot.sendMessage(msg.chat.id, "❌ Please provide a meeting name and at least one person.", { parse_mode: "HTML" });
+    }
+    const meetings = await getMeetingByKeyword(keyword).catch(() => []);
+    const meetingId      = meetings.length ? String(meetings[0].id) : keyword;
+    const meetingSubject = meetings.length ? meetings[0].subject : keyword;
+    await saveAttendance(meetingId, meetingSubject, persons);
+    bot.sendMessage(msg.chat.id,
+      `✅ Recorded <b>${persons.length}</b> attendee${persons.length !== 1 ? "s" : ""} for <b>${meetingSubject}</b>:\n\n${persons.map((p) => `• ${p}`).join("\n")}`,
+      { parse_mode: "HTML" });
+  } else {
+    // View attendance
+    const meetings = await getMeetingByKeyword(input).catch(() => []);
+    if (!meetings.length) {
+      return bot.sendMessage(msg.chat.id,
+        `📭 No meeting found matching "<b>${input}</b>".\n\nTo record attendance:\n<code>/attendance ${input} | Name1, Name2</code>`,
+        { parse_mode: "HTML" });
+    }
+    const meetingId = String(meetings[0].id);
+    const rows      = await getAttendance(meetingId).catch(() => []);
+    if (!rows.length) {
+      return bot.sendMessage(msg.chat.id,
+        `📭 No attendance recorded for <b>${meetings[0].subject}</b>.\n\nAdd some:\n<code>/attendance ${input} | Name1, Name2</code>`,
+        { parse_mode: "HTML" });
+    }
+    const lines = [`👥 <b>Attendance: ${meetings[0].subject}</b>`, ""];
+    rows.forEach((r, i) => lines.push(`${i + 1}. ${r.person}`));
+    lines.push("", `<i>Total: ${rows.length} attendee${rows.length !== 1 ? "s" : ""}</i>`);
+    bot.sendMessage(msg.chat.id, lines.join("\n"), { parse_mode: "HTML" });
   }
 });
 

@@ -50,6 +50,14 @@ async function initDb() {
       note            TEXT,
       created_at      TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS attendance (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id      TEXT,
+      meeting_subject TEXT,
+      person          TEXT,
+      created_at      TEXT DEFAULT (datetime('now'))
+    );
   `);
   console.log("✅ Database ready" + (process.env.TURSO_DATABASE_URL ? " (Turso cloud)" : " (local SQLite)"));
 }
@@ -193,11 +201,75 @@ async function getNotesByMeetingId(meetingId) {
   return res.rows;
 }
 
+/** Search tasks by keyword (person name or task text) */
+async function searchTasks(keyword) {
+  const res = await db.execute({
+    sql: `SELECT * FROM tasks WHERE done = 0 AND (
+            LOWER(task) LIKE LOWER(?) OR LOWER(person) LIKE LOWER(?) OR LOWER(meeting_subject) LIKE LOWER(?)
+          ) ORDER BY created_at DESC`,
+    args: [`%${keyword}%`, `%${keyword}%`, `%${keyword}%`],
+  });
+  return res.rows;
+}
+
+/** Delete all completed tasks, return count removed */
+async function clearDoneTasks() {
+  const count = await db.execute("SELECT COUNT(*) as count FROM tasks WHERE done = 1");
+  await db.execute("DELETE FROM tasks WHERE done = 1");
+  return count.rows[0].count;
+}
+
+/** Update task text and/or deadline */
+async function editTask(id, newTask, newDeadline) {
+  await db.execute({
+    sql: "UPDATE tasks SET task = ?, deadline = ? WHERE id = ?",
+    args: [newTask, newDeadline || "", id],
+  });
+}
+
+/** Get a single task by id */
+async function getTaskById(id) {
+  const res = await db.execute({
+    sql: "SELECT * FROM tasks WHERE id = ?",
+    args: [id],
+  });
+  return res.rows[0] || null;
+}
+
+/** Get all tasks with a non-empty deadline that are still pending */
+async function getTasksWithDeadlines() {
+  const res = await db.execute(
+    "SELECT * FROM tasks WHERE done = 0 AND deadline != '' ORDER BY created_at ASC"
+  );
+  return res.rows;
+}
+
+/** Save attendance for a meeting */
+async function saveAttendance(meetingId, meetingSubject, persons) {
+  for (const person of persons) {
+    await db.execute({
+      sql: "INSERT INTO attendance (meeting_id, meeting_subject, person) VALUES (?, ?, ?)",
+      args: [meetingId, meetingSubject, person.trim()],
+    });
+  }
+}
+
+/** Get attendance for a meeting */
+async function getAttendance(meetingId) {
+  const res = await db.execute({
+    sql: "SELECT * FROM attendance WHERE meeting_id = ? ORDER BY created_at ASC",
+    args: [meetingId],
+  });
+  return res.rows;
+}
+
 module.exports = {
   initDb,
   saveMeeting, hasReminderBeenSent, markReminderSent, saveSummary,
   getRecentMeetings, saveTask, getPendingTasks, markTaskDone,
   getMeetingByKeyword, getTasksByPerson,
   getMeetingStats, getTaskStats, addMeetingNote, getNotesByMeetingId,
+  searchTasks, clearDoneTasks, editTask, getTaskById, getTasksWithDeadlines,
+  saveAttendance, getAttendance,
 };
 

@@ -1,7 +1,7 @@
 const cron = require("node-cron");
 const { sendToGroup } = require("./telegramService");
 const { getScheduledMeetings } = require("./calendarService");
-const { saveMeeting, hasReminderBeenSent, markReminderSent } = require("./dbService");
+const { saveMeeting, hasReminderBeenSent, markReminderSent, getTasksWithDeadlines } = require("./dbService");
 const { processMeetingEnd } = require("./summaryService");
 
 const TZ = () => process.env.TIMEZONE || "Asia/Kolkata";
@@ -121,7 +121,39 @@ function startScheduler() {
     sendToGroup(lines.join("\n"));
   }, { timezone: TZ() });
 
-  console.log("✅ Scheduler started — smart reminders active (10min / 1hr / 1day) + daily digest at 9 AM");
+  // Daily overdue task check at 9:00 AM (sent right after digest)
+  cron.schedule("5 9 * * *", async () => {
+    const tasks = await getTasksWithDeadlines().catch(() => []);
+    if (!tasks.length) return;
+
+    const today = new Date();
+    const todayStr = today.toLocaleDateString("en-CA", { timeZone: TZ() }); // YYYY-MM-DD
+
+    // Parse deadline strings — support formats like "by Friday", "March 10", "10 Mar", "2026-03-10"
+    const overdue = tasks.filter((t) => {
+      const d = t.deadline.toLowerCase()
+        .replace(/^by\s+/i, "")
+        .replace(/^before\s+/i, "");
+      const parsed = new Date(d);
+      if (!isNaN(parsed)) {
+        return parsed.toLocaleDateString("en-CA") < todayStr;
+      }
+      return false; // skip unparseable deadlines (e.g. "end of week")
+    });
+
+    if (!overdue.length) return;
+
+    const lines = ["⚠️ <b>Overdue Tasks</b>", ""];
+    overdue.forEach((t) => {
+      lines.push(`🔴 <b>${t.person}</b> — ${t.task}`);
+      lines.push(`   ⏳ Deadline: ${t.deadline}  <i>(from: ${t.meeting_subject})</i>  <code>/done ${t.id}</code>`);
+      lines.push("");
+    });
+    lines.push("<i>Mark done with /tasks or /done &lt;id&gt;</i>");
+    sendToGroup(lines.join("\n"));
+  }, { timezone: TZ() });
+
+  console.log("✅ Scheduler started — smart reminders active (10min / 1hr / 1day) + daily digest + overdue alerts at 9 AM");
 }
 
 module.exports = { startScheduler };

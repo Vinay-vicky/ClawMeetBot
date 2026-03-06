@@ -209,6 +209,11 @@ initDb().then(() => {
       { command: "done",          description: "Mark a task done (e.g. /done 3)" },
       { command: "remind",        description: "Tasks for a person or all" },
       { command: "stats",         description: "Meeting and task statistics" },
+      { command: "search",        description: "Search tasks by keyword" },
+      { command: "cleardone",     description: "Remove all completed tasks" },
+      { command: "edittask",      description: "Edit a task text or deadline" },
+      { command: "export",        description: "Export all pending tasks as text" },
+      { command: "attendance",    description: "View or record meeting attendance" },
       { command: "cancel",        description: "Abort active wizard" },
       { command: "help",          description: "Show all commands" },
     ])
