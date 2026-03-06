@@ -1,6 +1,6 @@
 const TelegramBot = require("node-telegram-bot-api");
 const { formatMeetingMessage } = require("../utils/formatter");
-const { getRecentMeetings } = require("./dbService");
+const { getRecentMeetings, getPendingTasks, markTaskDone } = require("./dbService");
 
 if (!process.env.TELEGRAM_BOT_TOKEN) {
   console.error("❌ ERROR: TELEGRAM_BOT_TOKEN is missing from .env");
@@ -47,6 +47,7 @@ bot.onText(/\/help/, (msg) => {
     "/meet — Generate a random meeting link",
     "/next — Show next scheduled meeting",
     "/history — Show last 5 meetings",
+    "/tasks — Show pending action items",
     "/help — Show this message",
   ].join("\n");
   bot.sendMessage(msg.chat.id, help, { parse_mode: "HTML" });
@@ -67,6 +68,22 @@ bot.onText(/\/history/, (msg) => {
   });
   const message = ["<b>📋 Recent Meetings</b>", "", ...lines, "", "<i>✅ = AI summary available</i>"].join("\n");
   bot.sendMessage(msg.chat.id, message, { parse_mode: "HTML" });
+});
+
+// /tasks — show pending action items from DB
+bot.onText(/\/tasks/, (msg) => {
+  const tasks = getPendingTasks();
+  if (!tasks.length) {
+    return bot.sendMessage(msg.chat.id, "✅ No pending tasks! All caught up.", { parse_mode: "HTML" });
+  }
+  const lines = ["<b>📋 Pending Tasks</b>", ""];
+  tasks.forEach((t, i) => {
+    const deadline = t.deadline ? `\n   ⏳ ${t.deadline}` : "";
+    lines.push(`${i + 1}. <b>${t.person}</b> — ${t.task}${deadline}`);
+    lines.push(`   <i>from: ${t.meeting_subject}</i>`);
+    lines.push("");
+  });
+  bot.sendMessage(msg.chat.id, lines.join("\n"), { parse_mode: "HTML" });
 });
 
 // Log all incoming messages

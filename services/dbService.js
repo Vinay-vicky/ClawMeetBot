@@ -23,6 +23,17 @@ db.exec(`
     sent_at    TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (meeting_id, type)
   );
+
+  CREATE TABLE IF NOT EXISTS tasks (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    meeting_id      TEXT,
+    meeting_subject TEXT,
+    person          TEXT,
+    task            TEXT,
+    deadline        TEXT,
+    done            INTEGER DEFAULT 0,
+    created_at      TEXT DEFAULT (datetime('now'))
+  );
 `);
 
 /** Save a Graph API event to DB (ignores duplicates) */
@@ -70,4 +81,27 @@ function getRecentMeetings(limit = 10) {
   `).all(limit);
 }
 
-module.exports = { saveMeeting, hasReminderBeenSent, markReminderSent, saveSummary, getRecentMeetings };
+/** Save an extracted task */
+function saveTask(meetingId, meetingSubject, person, task, deadline) {
+  db.prepare(`
+    INSERT INTO tasks (meeting_id, meeting_subject, person, task, deadline)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(meetingId, meetingSubject, person, task, deadline || "");
+}
+
+/** Get all pending (not done) tasks */
+function getPendingTasks() {
+  return db.prepare(`
+    SELECT * FROM tasks WHERE done = 0 ORDER BY created_at DESC
+  `).all();
+}
+
+/** Mark a task as done by ID */
+function markTaskDone(id) {
+  db.prepare("UPDATE tasks SET done = 1 WHERE id = ?").run(id);
+}
+
+module.exports = {
+  saveMeeting, hasReminderBeenSent, markReminderSent, saveSummary,
+  getRecentMeetings, saveTask, getPendingTasks, markTaskDone,
+};

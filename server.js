@@ -141,6 +141,21 @@ app.get("/history", (req, res) => {
   res.json(getRecentMeetings(limit));
 });
 
+// Pending tasks from DB
+app.get("/tasks", (req, res) => {
+  const { getPendingTasks } = require("./services/dbService");
+  res.json(getPendingTasks());
+});
+
+// Mark a task done: POST /done { id: 1 }
+app.post("/done", (req, res) => {
+  const { markTaskDone } = require("./services/dbService");
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: "id required" });
+  markTaskDone(id);
+  res.json({ ok: true, message: `Task ${id} marked done` });
+});
+
 // Microsoft Teams webhook → forward meeting info to Telegram
 app.post("/webhook/teams", (req, res) => {
   try {

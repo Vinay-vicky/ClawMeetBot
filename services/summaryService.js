@@ -1,7 +1,7 @@
-const { generateMeetingSummary } = require("./aiSummaryService");
+const { analyzeMeeting, generateMeetingSummary } = require("./aiSummaryService");
 const fetch = require("node-fetch");
 const { ClientSecretCredential } = require("@azure/identity");
-const { saveSummary, hasReminderBeenSent, markReminderSent } = require("./dbService");
+const { saveSummary, hasReminderBeenSent, markReminderSent, saveTask } = require("./dbService");
 const { sendToGroup } = require("./telegramService");
 
 /** Get a Graph API access token */
@@ -45,12 +45,20 @@ async function fetchTranscript(joinUrl) {
       { headers: { Authorization: `Bearer ${token}` } }
     );
     const text = await contentRes.text();
-    // Strip VTT timestamps — keep just spoken content
-    return text
-      .split("\n")
-      .filter((l) => l && !l.match(/^\d/) && !l.match(/-->/) && l !== "WEBVTT")
-      .join(" ")
-      .substring(0, 4000); // OpenAI token limit safety
+    // Parse VTT preserving speaker names: "<v Speaker Name>text</v>"
+    const lines = [];
+    let currentSpeaker = "";
+    for (const line of text.split("\n")) {
+      if (line.includes("<v ")) {
+        const speakerMatch = line.match(/<v ([^>]+)>/);
+        if (speakerMatch) currentSpeaker = speakerMatch[1];
+        const spoken = line.replace(/<[^>]+>/g, "").trim();
+        if (spoken) lines.push(`${currentSpeaker}: ${spoken}`);
+      } else if (line && !line.match(/^\d/) && !line.match(/-->/) && line !== "WEBVTT") {
+        if (line.trim()) lines.push(line.trim());
+      }
+    }
+    return lines.join("\n").substring(0, 4000);
   } catch (err) {
     console.error("⚠ Transcript fetch failed:", err.message);
     return null;
@@ -76,39 +84,77 @@ async function processMeetingEnd(event) {
   console.log(`📝 Meeting ended: ${subject} — generating summary...`);
   markReminderSent(event.id, reminderType);
 
-  // Try to get transcript
-  let summaryText = null;
-  if (joinUrl) {
-    const transcript = await fetchTranscript(joinUrl);
-    if (transcript) {
-      summaryText = await generateSummary(subject, transcript);
-      saveSummary(event.id, summaryText);
-    }
-  }
-
   const tz = process.env.TIMEZONE || "Asia/Kolkata";
   const endTime = new Date((event.end.dateTime || event.end.date).replace(/Z?$/, "Z"));
   const endStr = endTime.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: tz });
 
-  const message = summaryText
-    ? [
-        `📝 <b>Meeting Summary: ${subject}</b>`,
-        ``,
-        `🕒 Ended at: ${endStr}`,
-        ``,
-        summaryText
-          .replace(/\*\*(.*?)\*\*/g, "<b>$1</b>")
-          .replace(/^[-•] /gm, "• "),
-      ].join("\n")
-    : [
-        `✅ <b>Meeting Ended: ${subject}</b>`,
-        ``,
-        `🕒 Ended at: ${endStr}`,
-        ``,
-        `<i>No transcript available. Enable recording in Teams to get AI summaries.</i>`,
-      ].join("\n");
+  // Try to fetch transcript and run Gemini analysis
+  let analysis = null;
+  if (joinUrl) {
+    const transcript = await fetchTranscript(joinUrl);
+    if (transcript) {
+      analysis = await analyzeMeeting(transcript, subject);
+      if (analysis) {
+        // Build plain text summary for DB storage
+        const summaryText = [
+          analysis.keyPoints?.map((p) => `• ${p}`).join("\n") || "",
+          analysis.tasks?.map((t) => `• ${t.person} → ${t.task}`).join("\n") || "",
+        ].filter(Boolean).join("\n");
+        saveSummary(event.id, summaryText);
 
-  sendToGroup(message);
+        // Save each task to DB
+        if (analysis.tasks?.length) {
+          for (const t of analysis.tasks) {
+            saveTask(event.id, subject, t.person, t.task, t.deadline);
+          }
+        }
+      }
+    }
+  }
+
+  if (analysis) {
+    // ── Send summary message ───────────────────────────────────
+    const summaryLines = [
+      `📝 <b>Meeting Summary: ${subject}</b>`,
+      `🕒 Ended at: ${endStr}`,
+      ``,
+    ];
+    if (analysis.keyPoints?.length) {
+      summaryLines.push(`<b>Key Points:</b>`);
+      analysis.keyPoints.forEach((p) => summaryLines.push(`• ${p}`));
+    }
+    if (analysis.decisions?.length) {
+      summaryLines.push(``, `<b>Decisions Made:</b>`);
+      analysis.decisions.forEach((d) => summaryLines.push(`• ${d}`));
+    }
+    sendToGroup(summaryLines.join("\n"));
+
+    // ── Send individual task assignment messages ───────────────
+    if (analysis.tasks?.length) {
+      // Small delay so summary arrives first
+      setTimeout(() => {
+        const taskLines = [
+          `📌 <b>Task Assignments — ${subject}</b>`,
+          ``,
+        ];
+        analysis.tasks.forEach((t, i) => {
+          const deadline = t.deadline ? `\n   ⏳ Deadline: ${t.deadline}` : "";
+          taskLines.push(`${i + 1}. <b>${t.person}</b>\n   📋 ${t.task}${deadline}`);
+          taskLines.push(``);
+        });
+        taskLines.push(`<i>Reply /tasks to see all pending tasks</i>`);
+        sendToGroup(taskLines.join("\n"));
+      }, 3000);
+    }
+  } else {
+    // No transcript — send basic ended message
+    sendToGroup([
+      `✅ <b>Meeting Ended: ${subject}</b>`,
+      `🕒 Ended at: ${endStr}`,
+      ``,
+      `<i>Enable recording in Teams settings to get automatic AI summaries.</i>`,
+    ].join("\n"));
+  }
 }
 
 module.exports = { processMeetingEnd };
