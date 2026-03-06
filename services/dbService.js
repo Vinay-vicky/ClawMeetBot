@@ -58,6 +58,13 @@ async function initDb() {
       person          TEXT,
       created_at      TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS team_members (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT NOT NULL,
+      email      TEXT NOT NULL UNIQUE,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
   `);
   console.log("✅ Database ready" + (process.env.TURSO_DATABASE_URL ? " (Turso cloud)" : " (local SQLite)"));
 }
@@ -263,6 +270,32 @@ async function getAttendance(meetingId) {
   return res.rows;
 }
 
+// ── Team Members ──────────────────────────────────────────────────────────────
+
+/** Add a team member (name + email). Silently updates email if name already exists. */
+async function addTeamMember(name, email) {
+  await db.execute({
+    sql: `INSERT INTO team_members (name, email) VALUES (?, ?)
+          ON CONFLICT(email) DO UPDATE SET name = excluded.name`,
+    args: [name.trim(), email.trim().toLowerCase()],
+  });
+}
+
+/** Get all team members ordered by name */
+async function getAllMembers() {
+  const res = await db.execute("SELECT * FROM team_members ORDER BY name ASC");
+  return res.rows;
+}
+
+/** Remove a team member by name (case-insensitive) */
+async function removeMemberByName(name) {
+  const res = await db.execute({
+    sql: "DELETE FROM team_members WHERE lower(name) = lower(?)",
+    args: [name.trim()],
+  });
+  return res.rowsAffected;
+}
+
 module.exports = {
   initDb,
   saveMeeting, hasReminderBeenSent, markReminderSent, saveSummary,
@@ -271,5 +304,6 @@ module.exports = {
   getMeetingStats, getTaskStats, addMeetingNote, getNotesByMeetingId,
   searchTasks, clearDoneTasks, editTask, getTaskById, getTasksWithDeadlines,
   saveAttendance, getAttendance,
+  addTeamMember, getAllMembers, removeMemberByName,
 };
 

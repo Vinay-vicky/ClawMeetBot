@@ -96,7 +96,7 @@ async function getScheduledMeetings(fromMinutes = -30, toMinutes = 1500) {
  * Create a real Teams online meeting via Graph API.
  * dateStr: "YYYY-MM-DD", timeStr: "HH:MM", durationMins: number
  */
-async function createTeamsMeeting(subject, dateStr, timeStr, durationMins, attendeeEmails = [], tz = "Asia/Kolkata") {
+async function createTeamsMeeting(subject, dateStr, timeStr, durationMins, attendeeEmails = [], tz = "Asia/Kolkata", createdByName = null) {
   const tenantId = process.env.TEAMS_TENANT_ID;
   const clientId = process.env.TEAMS_APP_ID;
   const clientSecret = process.env.TEAMS_APP_PASSWORD;
@@ -131,7 +131,7 @@ async function createTeamsMeeting(subject, dateStr, timeStr, durationMins, atten
     onlineMeetingProvider: "teamsForBusiness",
     body: {
       contentType: "html",
-      content: "<p>This meeting was scheduled via <b>ClawMeetBot</b>.</p><p>🔴 <b>Please record this meeting</b> so an AI summary and action items can be auto-generated for the team.</p><p>To record: click the <b>More &gt; Start recording</b> button when the meeting starts in Teams.</p>",
+      content: `<p>This meeting was scheduled via <b>ClawMeetBot</b>${createdByName ? ` by <b>${createdByName}</b>` : ""}.</p><p>🔴 <b>Recording is enabled automatically</b> — an AI summary will be shared after the meeting.</p>`,
     },
     attendees: attendeeEmails.map((email) => ({
       emailAddress: { address: email.trim() },

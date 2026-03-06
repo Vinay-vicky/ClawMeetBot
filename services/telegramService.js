@@ -1,7 +1,8 @@
 const TelegramBot = require("node-telegram-bot-api");
 const { getRecentMeetings, getPendingTasks, markTaskDone, getMeetingByKeyword, getTasksByPerson,
         saveTask, getMeetingStats, getTaskStats, addMeetingNote, getNotesByMeetingId,
-        searchTasks, clearDoneTasks, editTask, getTaskById, saveAttendance, getAttendance } = require("./dbService");
+        searchTasks, clearDoneTasks, editTask, getTaskById, saveAttendance, getAttendance,
+        addTeamMember, getAllMembers, removeMemberByName } = require("./dbService");
 const { getScheduledMeetings, createTeamsMeeting, deleteCalendarEvent } = require("./calendarService");
 
 if (!process.env.TELEGRAM_BOT_TOKEN) {
@@ -168,6 +169,9 @@ bot.onText(/\/start/, (msg) => {
     "/meet — Guided Teams meeting creator",
     "/meet Title date time duration — One-line shortcut",
     "/cancelmeeting — Cancel a scheduled Teams meeting",
+    "/addmember Name | email — Save a team member",
+    "/members — List saved team members",
+    "/removemember &lt;name&gt; — Remove a member",
     "/cancel — Abort any active wizard",
     "",
     "/help — Show this menu again",
@@ -217,6 +221,33 @@ bot.onText(/\/meet(?:\s+([\s\S]+))?/, (msg, match) => {
     { parse_mode: "HTML" }
   );
 });
+
+// Build and send the attendee picker (inline keyboard of saved members)
+async function showAttendeePicker(chatId, title, dateStr, timeStr, hrMin, selectedEmails) {
+  const members = await getAllMembers().catch(() => []);
+  const lines = [`✅ <b>${title}</b>\n📅 ${dateStr}  🕐 ${timeStr}  ⏱ ${hrMin}\n\n👥 <b>Select attendees:</b>`];
+  const keyboard = [];
+
+  members.forEach((m) => {
+    const selected = selectedEmails.includes(m.email);
+    keyboard.push([{ text: `${selected ? "✅" : "◻️"} ${m.name}`, callback_data: `ma_toggle_${m.id}_${m.email}` }]);
+  });
+
+  const actionRow = [];
+  if (members.length) actionRow.push({ text: "✏️ Add manually", callback_data: "ma_manual" });
+  actionRow.push({ text: "⏭ Skip", callback_data: "ma_skip" });
+  actionRow.push({ text: "✅ Confirm", callback_data: "ma_confirm" });
+  keyboard.push(actionRow);
+
+  if (!members.length) {
+    lines.push("\n<i>No saved members yet. Tap \"Add manually\" to enter emails, or use /addmember to save the team first.</i>");
+  }
+
+  return bot.sendMessage(chatId, lines.join("\n"), {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: keyboard },
+  });
+}
 
 // Wizard step processor
 async function handleMeetWizard(msg, session, text) {
@@ -272,51 +303,69 @@ async function handleMeetWizard(msg, session, text) {
     }
     session.data.durationMins = durationMins;
     session.step = "attendees";
+    session.selectedEmails = session.selectedEmails || [];
     meetSessions.set(chatId, session);
-    return bot.sendMessage(chatId,
-      "\uD83D\uDC65 <b>Attendees? (optional)</b>\n\nEnter email addresses separated by commas, or type <code>skip</code>:\n<code>alice@company.com, bob@company.com</code>",
-      { parse_mode: "HTML" });
+    const hrs2 = Math.floor(durationMins / 60);
+    const mins2 = durationMins % 60;
+    const hrMin2 = hrs2 > 0 && mins2 > 0 ? `${hrs2}h ${mins2}m` : hrs2 > 0 ? `${hrs2}h` : `${mins2}m`;
+    return showAttendeePicker(chatId, session.data.title, session.data.dateStr, session.data.timeStr, hrMin2, session.selectedEmails);
+  }
+
+  if (session.step === "attendees_manual") {
+    // User typed extra emails to add on top of selected members
+    const typed = text.toLowerCase() === "skip"
+      ? []
+      : text.split(",").map((e) => e.trim()).filter((e) => e.includes("@"));
+    const allAttendees = [...new Set([...(session.selectedEmails || []), ...typed])];
+    session.step = "attendees";
+    session.selectedEmails = allAttendees;
+    meetSessions.set(chatId, session);
+    const { title, dateStr, timeStr, durationMins } = session.data;
+    const hrs = Math.floor(durationMins / 60); const mins = durationMins % 60;
+    const hrMin = hrs > 0 && mins > 0 ? `${hrs}h ${mins}m` : hrs > 0 ? `${hrs}h` : `${mins}m`;
+    return showAttendeePicker(chatId, title, dateStr, timeStr, hrMin, allAttendees);
   }
 
   if (session.step === "attendees") {
     meetSessions.delete(chatId);
-    const attendees = text.toLowerCase() === "skip"
-      ? []
-      : text.split(",").map((e) => e.trim()).filter((e) => e.includes("@"));
-
-    bot.sendMessage(chatId, "\u23F3 Creating your Teams meeting...");
-
-    try {
-      const { title, dateStr, timeStr, durationMins } = session.data;
-      const event = await createTeamsMeeting(title, dateStr, timeStr, durationMins, attendees, tz);
-
-      const joinUrl = event.onlineMeeting?.joinUrl || event.webLink;
-      const hrs = Math.floor(durationMins / 60);
-      const mins = durationMins % 60;
-      const hrMin = hrs > 0 && mins > 0 ? `${hrs}h ${mins}m` : hrs > 0 ? `${hrs}h` : `${mins}m`;
-
-      const lines = [
-        "\u2705 <b>Teams Meeting Created!</b>",
-        "",
-        `\uD83D\uDCCC <b>${title}</b>`,
-        `\uD83D\uDCC5 ${dateStr}  \uD83D\uDD50 ${timeStr}  \u23F1 ${hrMin}`,
-        attendees.length ? `\uD83D\uDC65 ${attendees.join(", ")}` : "",
-        "",
-        `\uD83D\uDD17 <a href="${joinUrl}">Join Meeting</a>`,
-        "",
-        "\uD83D\uDD34 <b>Auto-recording is enabled</b> \u2014 AI summary will be posted when the meeting ends.",
-      ].filter((l) => l !== "");
-
-      const message = lines.join("\n");
-      bot.sendMessage(chatId, message, { parse_mode: "HTML", disable_web_page_preview: true });
-      sendToGroup(message);
-    } catch (err) {
-      console.error("\u274c createTeamsMeeting error:", err.message);
-      bot.sendMessage(chatId,
-        `\u274c Failed to create meeting: <code>${err.message.substring(0, 300)}</code>`,
-        { parse_mode: "HTML" });
-    }
+    const typed = text.toLowerCase() === "skip" ? [] : text.split(",").map((e) => e.trim()).filter((e) => e.includes("@"));
+    const attendees = [...new Set([...(session.selectedEmails || []), ...typed])];
+    await finishMeetingCreation(chatId, session, attendees);
     return;
+  }
+}
+
+// Shared final step: create the meeting and announce it
+async function finishMeetingCreation(chatId, session, attendees) {
+  const tz = process.env.TIMEZONE || "Asia/Kolkata";
+  bot.sendMessage(chatId, "⏳ Creating your Teams meeting...");
+  try {
+    const { title, dateStr, timeStr, durationMins } = session.data;
+    const event = await createTeamsMeeting(title, dateStr, timeStr, durationMins, attendees, tz, session.createdBy);
+    const joinUrl = event.onlineMeeting?.joinUrl || event.webLink;
+    const hrs = Math.floor(durationMins / 60);
+    const mins = durationMins % 60;
+    const hrMin = hrs > 0 && mins > 0 ? `${hrs}h ${mins}m` : hrs > 0 ? `${hrs}h` : `${mins}m`;
+    const lines = [
+      "✅ <b>Teams Meeting Created!</b>",
+      "",
+      `📌 <b>${title}</b>`,
+      `📅 ${dateStr}  🕐 ${timeStr}  ⏱ ${hrMin}`,
+      attendees.length ? `👥 Attendees: ${attendees.join(", ")}` : "",
+      `👤 Created by: <b>${session.createdBy || "Team"}</b>`,
+      "",
+      `🔗 <a href="${joinUrl}">Join Meeting</a>`,
+      "",
+      "🔴 <b>Auto-recording is enabled</b> — AI summary will be posted when the meeting ends.",
+    ].filter((l) => l !== "");
+    const message = lines.join("\n");
+    bot.sendMessage(chatId, message, { parse_mode: "HTML", disable_web_page_preview: true });
+    sendToGroup(message);
+  } catch (err) {
+    console.error("❌ createTeamsMeeting error:", err.message);
+    bot.sendMessage(chatId,
+      `❌ Failed to create meeting: <code>${err.message.substring(0, 300)}</code>`,
+      { parse_mode: "HTML" });
   }
 }
 
@@ -411,6 +460,9 @@ bot.onText(/\/help/, (msg) => {
     "/meet — Guided Teams meeting creator",
     "/meet Title date time duration — One-line shortcut",
     "/cancelmeeting — Cancel a scheduled Teams meeting",
+    "/addmember Name | email — Save a team member",
+    "/members — List saved team members",
+    "/removemember &lt;name&gt; — Remove a member",
     "/cancel — Abort any active wizard",
     "",
     "/help — Show this message",
@@ -501,9 +553,74 @@ bot.onText(/\/tasks/, async (msg) => {
   });
 });
 
-// Inline button: tap ✅ to mark a task done, or navigate task pages
+// Inline button: tap ✅ to mark a task done, or navigate task pages, or pick meeting attendees
 bot.on("callback_query", async (query) => {
   const data = query.data || "";
+  const chatId = query.message.chat.id;
+
+  // ── Meeting attendee picker ────────────────────────────────────────────────
+  if (data === "ma_skip") {
+    const session = meetSessions.get(chatId);
+    if (!session) return bot.answerCallbackQuery(query.id);
+    meetSessions.delete(chatId);
+    bot.answerCallbackQuery(query.id);
+    bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: query.message.message_id }).catch(() => {});
+    await finishMeetingCreation(chatId, session, session.selectedEmails || []);
+    return;
+  }
+  if (data === "ma_confirm") {
+    const session = meetSessions.get(chatId);
+    if (!session) return bot.answerCallbackQuery(query.id);
+    meetSessions.delete(chatId);
+    bot.answerCallbackQuery(query.id);
+    bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: query.message.message_id }).catch(() => {});
+    await finishMeetingCreation(chatId, session, session.selectedEmails || []);
+    return;
+  }
+  if (data === "ma_manual") {
+    const session = meetSessions.get(chatId);
+    if (!session) return bot.answerCallbackQuery(query.id);
+    session.step = "attendees_manual";
+    meetSessions.set(chatId, session);
+    bot.answerCallbackQuery(query.id);
+    bot.sendMessage(chatId,
+      "✏️ Type extra email addresses (comma-separated) for people not in the team list:\n<code>guest@example.com, partner@agency.com</code>\n\nOr type <code>skip</code> to skip.",
+      { parse_mode: "HTML" });
+    return;
+  }
+  if (data.startsWith("ma_toggle_")) {
+    const session = meetSessions.get(chatId);
+    if (!session) return bot.answerCallbackQuery(query.id);
+    // format: ma_toggle_<id>_<email>
+    const parts = data.slice("ma_toggle_".length).split("_");
+    const email = parts.slice(1).join("_"); // email may contain underscores
+    session.selectedEmails = session.selectedEmails || [];
+    if (session.selectedEmails.includes(email)) {
+      session.selectedEmails = session.selectedEmails.filter((e) => e !== email);
+    } else {
+      session.selectedEmails.push(email);
+    }
+    meetSessions.set(chatId, session);
+    bot.answerCallbackQuery(query.id);
+    // Rebuild the picker in-place
+    const members = await getAllMembers().catch(() => []);
+    const { title, dateStr, timeStr, durationMins } = session.data;
+    const hrs = Math.floor(durationMins / 60); const mins = durationMins % 60;
+    const hrMin = hrs > 0 && mins > 0 ? `${hrs}h ${mins}m` : hrs > 0 ? `${hrs}h` : `${mins}m`;
+    const keyboard = [];
+    members.forEach((m) => {
+      const selected = session.selectedEmails.includes(m.email);
+      keyboard.push([{ text: `${selected ? "✅" : "▫️"} ${m.name}`, callback_data: `ma_toggle_${m.id}_${m.email}` }]);
+    });
+    const actionRow = [];
+    actionRow.push({ text: "✏️ Add manually", callback_data: "ma_manual" });
+    actionRow.push({ text: "⏭ Skip", callback_data: "ma_skip" });
+    actionRow.push({ text: "✅ Confirm", callback_data: "ma_confirm" });
+    keyboard.push(actionRow);
+    bot.editMessageReplyMarkup({ inline_keyboard: keyboard },
+      { chat_id: chatId, message_id: query.message.message_id }).catch(() => {});
+    return;
+  }
 
   // Task page navigation
   if (data === "tp_noop") {
@@ -851,6 +968,51 @@ bot.onText(/\/stats/, async (msg) => {
   } catch (err) {
     bot.sendMessage(msg.chat.id, "❌ Could not fetch stats: " + err.message);
   }
+});
+
+// /addmember <name> | <email> — save a team member's email for meeting invites
+bot.onText(/\/addmember(?:\s+([\s\S]+))?/, async (msg, match) => {
+  const input = match && match[1] ? match[1].trim() : "";
+  if (!input || !input.includes("|")) {
+    return bot.sendMessage(msg.chat.id,
+      "<b>👤 Add Team Member</b>\n\nFormat: <code>/addmember Name | email@company.com</code>\n\nExample:\n<code>/addmember Alice | alice@zunoverse.org</code>",
+      { parse_mode: "HTML" });
+  }
+  const [name, email] = input.split("|").map((s) => s.trim());
+  if (!name || !email || !email.includes("@")) {
+    return bot.sendMessage(msg.chat.id, "❌ Invalid format. Use: <code>/addmember Name | email@company.com</code>", { parse_mode: "HTML" });
+  }
+  await addTeamMember(name, email);
+  bot.sendMessage(msg.chat.id,
+    `✅ <b>${name}</b> (<code>${email}</code>) saved to team.\n\nThey'll appear in the attendee picker when you use /meet.`,
+    { parse_mode: "HTML" });
+});
+
+// /members — list all saved team members
+bot.onText(/\/members/, async (msg) => {
+  const members = await getAllMembers().catch(() => []);
+  if (!members.length) {
+    return bot.sendMessage(msg.chat.id,
+      "📭 No team members saved yet.\n\nAdd one:\n<code>/addmember Name | email@company.com</code>",
+      { parse_mode: "HTML" });
+  }
+  const lines = ["<b>👥 Team Members</b>", ""];
+  members.forEach((m, i) => lines.push(`${i + 1}. <b>${m.name}</b> — <code>${m.email}</code>`));
+  lines.push("", "<i>Remove with /removemember &lt;name&gt;</i>");
+  bot.sendMessage(msg.chat.id, lines.join("\n"), { parse_mode: "HTML" });
+});
+
+// /removemember <name> — remove a saved team member
+bot.onText(/\/removemember(?:\s+(.+))?/, async (msg, match) => {
+  const name = match && match[1] ? match[1].trim() : "";
+  if (!name) {
+    return bot.sendMessage(msg.chat.id, "Usage: <code>/removemember &lt;name&gt;</code>", { parse_mode: "HTML" });
+  }
+  const count = await removeMemberByName(name).catch(() => 0);
+  if (!count) {
+    return bot.sendMessage(msg.chat.id, `❌ No member found with name "<b>${name}</b>". Check /members for exact names.`, { parse_mode: "HTML" });
+  }
+  bot.sendMessage(msg.chat.id, `✅ <b>${name}</b> removed from team.`, { parse_mode: "HTML" });
 });
 
 // /search <keyword> — search pending tasks by keyword
