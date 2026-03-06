@@ -153,7 +153,33 @@ async function createTeamsMeeting(subject, dateStr, timeStr, durationMins, atten
     throw new Error(errText);
   }
 
-  return await response.json();
+  const event = await response.json();
+
+  // Enable auto-recording on the online meeting object (requires OnlineMeetings.ReadWrite.All)
+  const joinUrl = event.onlineMeeting?.joinUrl;
+  if (joinUrl) {
+    try {
+      // Find the online meeting by joinWebUrl
+      const filterUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/onlineMeetings?$filter=JoinWebUrl eq '${encodeURIComponent(joinUrl)}'`;
+      const omRes  = await fetch(filterUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const omData = await omRes.json();
+      const om = omData.value && omData.value[0];
+      if (om) {
+        // PATCH to enable automatic recording
+        await fetch(`https://graph.microsoft.com/v1.0/users/${userEmail}/onlineMeetings/${om.id}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ recordAutomatically: true }),
+        });
+        console.log(`🔴 Auto-recording enabled for: ${subject}`);
+      }
+    } catch (err) {
+      // Non-fatal — meeting is still created, just log the warning
+      console.warn("⚠ Could not enable auto-recording:", err.message);
+    }
+  }
+
+  return event;
 }
 
 /**

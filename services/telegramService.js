@@ -304,7 +304,7 @@ async function handleMeetWizard(msg, session, text) {
         "",
         `\uD83D\uDD17 <a href="${joinUrl}">Join Meeting</a>`,
         "",
-        "\uD83D\uDD34 <b>Remember to hit Record</b> when the meeting starts so the AI summary works!",
+        "\uD83D\uDD34 <b>Auto-recording is enabled</b> \u2014 AI summary will be posted when the meeting ends.",
       ].filter((l) => l !== "");
 
       const message = lines.join("\n");
