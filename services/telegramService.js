@@ -24,6 +24,8 @@ const meetSessions = new Map();
 const cancelSessions = new Map();
 // In-memory state for /addtask wizard: chatId -> { step, person, task }
 const addTaskSessions = new Map();
+// In-memory state for /addmember wizard: chatId -> true
+const addMemberSessions = new Map();
 
 // Page size for /tasks pagination
 const TASKS_PAGE_SIZE = 5;
@@ -183,10 +185,11 @@ bot.onText(/\/start/, (msg) => {
 
 // /cancel — abort any active wizard
 bot.onText(/\/cancel/, (msg) => {
-  const hadMeet    = meetSessions.delete(msg.chat.id);
-  const hadCancel  = cancelSessions.delete(msg.chat.id);
-  const hadAddTask = addTaskSessions.delete(msg.chat.id);
-  if (hadMeet || hadCancel || hadAddTask) {
+  const hadMeet      = meetSessions.delete(msg.chat.id);
+  const hadCancel    = cancelSessions.delete(msg.chat.id);
+  const hadAddTask   = addTaskSessions.delete(msg.chat.id);
+  const hadAddMember = addMemberSessions.delete(msg.chat.id);
+  if (hadMeet || hadCancel || hadAddTask || hadAddMember) {
     bot.sendMessage(msg.chat.id, "❌ Operation cancelled.", { parse_mode: "HTML" });
   }
 });
@@ -974,8 +977,10 @@ bot.onText(/\/stats/, async (msg) => {
 bot.onText(/\/addmember(?:\s+([\s\S]+))?/, async (msg, match) => {
   const input = match && match[1] ? match[1].trim() : "";
   if (!input || !input.includes("|")) {
+    // Start wizard — wait for next message
+    addMemberSessions.set(msg.chat.id, true);
     return bot.sendMessage(msg.chat.id,
-      "<b>👤 Add Team Member</b>\n\nFormat: <code>/addmember Name | email@company.com</code>\n\nExample:\n<code>/addmember Alice | alice@zunoverse.org</code>",
+      "<b>👤 Add Team Member</b>\n\nReply with:\n<code>Name | email@company.com</code>\n\nExample:\n<code>Alice | alice@zunoverse.org</code>\n\n<i>Type /cancel to abort.</i>",
       { parse_mode: "HTML" });
   }
   const [name, email] = input.split("|").map((s) => s.trim());
@@ -1173,7 +1178,7 @@ function handleAddTaskWizard(msg, session, text) {
 }
 
 // Message handler: route to active wizard, otherwise log
-bot.on("message", (msg) => {
+bot.on("message", async (msg) => {
   const text = (msg.text || "").trim();
   if (!text || text.startsWith("/")) return;
 
@@ -1185,6 +1190,25 @@ bot.on("message", (msg) => {
 
   const addTaskSession = addTaskSessions.get(msg.chat.id);
   if (addTaskSession) { handleAddTaskWizard(msg, addTaskSession, text); return; }
+
+  if (addMemberSessions.has(msg.chat.id)) {
+    addMemberSessions.delete(msg.chat.id);
+    if (!text.includes("|")) {
+      return bot.sendMessage(msg.chat.id,
+        "❌ Invalid format. Expected: <code>Name | email@company.com</code>\n\nTry /addmember again.",
+        { parse_mode: "HTML" });
+    }
+    const [name, email] = text.split("|").map((s) => s.trim());
+    if (!name || !email || !email.includes("@")) {
+      return bot.sendMessage(msg.chat.id,
+        "❌ Invalid format. Expected: <code>Name | email@company.com</code>\n\nTry /addmember again.",
+        { parse_mode: "HTML" });
+    }
+    await addTeamMember(name, email);
+    return bot.sendMessage(msg.chat.id,
+      `✅ <b>${name}</b> (<code>${email}</code>) saved to team.\n\nThey'll appear in the attendee picker when you use /meet.`,
+      { parse_mode: "HTML" });
+  }
 
   console.log(`[${msg.chat.type}] ${msg.from.username || msg.from.first_name}: ${text}`);
 });
