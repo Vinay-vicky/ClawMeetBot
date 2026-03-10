@@ -24,6 +24,8 @@ desktop.ini
 
 # Temp / test scripts
 getChatId.js
+fix-console.js
+fix-remaining.js
 
 # PM2
 .pm2/

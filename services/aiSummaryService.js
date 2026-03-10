@@ -12,7 +12,7 @@ async function analyzeMeeting(transcriptText, subject = "Meeting") {
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-  const prompt = `You are a professional meeting assistant. Analyze this meeting transcript for "${subject}".
+  const prompt = `You are a professional meeting assistant specialising in extracting action items. Analyze this meeting transcript for "${subject}".
 
 Transcript:
 ${transcriptText.substring(0, 4000)}
@@ -24,14 +24,18 @@ Return ONLY valid JSON (no markdown, no code blocks) in this exact format:
   "tasks": [
     { "person": "Full Name", "task": "Specific task description", "deadline": "by Friday" },
     { "person": "Full Name", "task": "Specific task description", "deadline": "" }
-  ]
+  ],
+  "sentiment": "positive",
+  "topContributors": ["Name1", "Name2"]
 }
 
 Rules:
 - Max 5 key points, max 3 decisions
-- Extract ALL action items — each must have a real person's name
-- If no deadline mentioned, leave deadline as empty string
-- Use actual names from the transcript, not pronouns`;
+- Extract ALL action items — phrases like "X will ...", "X should ...", "X needs to ...", "assign X to ..."
+- Each task MUST have a real person's name from the transcript (no pronouns like "he/she/they")
+- deadline: extract exact deadline if stated (e.g. "by Thursday", "March 15", "end of week"). Empty string if none.
+- sentiment: overall meeting tone — one of: positive | neutral | negative
+- topContributors: up to 3 names who spoke most or drove the most decisions`;
 
   try {
     const result = await model.generateContent(prompt);

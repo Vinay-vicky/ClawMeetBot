@@ -115,13 +115,17 @@ async function processMeetingEnd(event) {
 
   if (analysis) {
     // ── Send summary message ───────────────────────────────────
+    const sentimentEmoji = { positive: "😊", neutral: "😐", negative: "😟" }[analysis.sentiment] || "📝";
     const summaryLines = [
       `📝 <b>Meeting Summary: ${subject}</b>`,
-      `🕒 Ended at: ${endStr}`,
+      `🕒 Ended at: ${endStr}  ${sentimentEmoji} ${analysis.sentiment || ""}`,
       ``,
     ];
+    if (analysis.topContributors?.length) {
+      summaryLines.push(`🎙 <b>Top Contributors:</b> ${analysis.topContributors.join(", ")}`);
+    }
     if (analysis.keyPoints?.length) {
-      summaryLines.push(`<b>Key Points:</b>`);
+      summaryLines.push(``, `<b>Key Points:</b>`);
       analysis.keyPoints.forEach((p) => summaryLines.push(`• ${p}`));
     }
     if (analysis.decisions?.length) {

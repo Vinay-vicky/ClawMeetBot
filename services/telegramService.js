@@ -154,6 +154,7 @@ bot.onText(/\/start/, (msg) => {
     "/upcoming — Next 5 meetings (7-day view)",
     "/history [n] — Last N past meetings (default 5)",
     "/summary &lt;name&gt; — AI summary of a past meeting",
+    "/pdf &lt;name&gt; — Export meeting minutes as PDF",
     "/notes &lt;name&gt; — View or add notes to a meeting",
     "/attendance &lt;name&gt; — View or record attendees",
     "",
@@ -177,9 +178,12 @@ bot.onText(/\/start/, (msg) => {
     "/removemember &lt;name&gt; — Remove a member",
     "/cancel — Abort any active wizard",
     "",
+    "<b>🤖 AI</b>",
+    "/ask &lt;question&gt; — Chat with your meeting history",
+    "",
     "/help — Show this menu again",
     "",
-    "<i>Reminders sent 1 day, 1 hour and 10 min before each meeting. AI summary + tasks auto-posted after meetings end. Overdue task alerts at 9 AM daily.</i>",
+    "<i>Reminders: 1 day / 1 hr / 10 min + 30 min prep briefing. AI summary + task assignments auto-posted after meetings. Task deadline alerts at 8 AM. Overdue alerts at 9 AM.</i>",
   ].join("\n");
   bot.sendMessage(msg.chat.id, welcome, { parse_mode: "HTML" });
 });
@@ -342,9 +346,41 @@ async function handleMeetWizard(msg, session, text) {
 // Shared final step: create the meeting and announce it
 async function finishMeetingCreation(chatId, session, attendees) {
   const tz = process.env.TIMEZONE || "Asia/Kolkata";
+  const { title, dateStr, timeStr, durationMins } = session.data;
+
+  // ── Conflict detection ────────────────────────────────────────────────────
+  try {
+    const existing = await getScheduledMeetings(0, 10080);
+    const newStart = new Date(`${dateStr}T${timeStr}:00`).getTime();
+    const newEnd   = newStart + durationMins * 60000;
+
+    const conflicts = existing.filter((e) => {
+      const s = new Date((e.start.dateTime || e.start.date).replace(/Z?$/, "Z")).getTime();
+      const en = new Date((e.end.dateTime   || e.end.date).replace(/Z?$/, "Z")).getTime();
+      return s < newEnd && en > newStart;           // overlap
+    });
+
+    if (conflicts.length) {
+      const conflictLines = conflicts.map((e) => {
+        const s = new Date((e.start.dateTime || e.start.date).replace(/Z?$/, "Z"));
+        const eEnd = new Date((e.end.dateTime || e.end.date).replace(/Z?$/, "Z"));
+        const sStr = s.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: tz });
+        const eStr = eEnd.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: tz });
+        return `⚠️ <b>${(e.subject || "Meeting").trim()}</b> (${sStr}–${eStr})`;
+      });
+      await bot.sendMessage(chatId, [
+        `⚠️ <b>Time Conflict Detected!</b>`,
+        ``,
+        `The new meeting overlaps with:`,
+        ...conflictLines,
+        ``,
+        `Creating it anyway — please adjust if needed.`,
+      ].join("\n"), { parse_mode: "HTML" });
+    }
+  } catch (_) { /* non-fatal */ }
+
   bot.sendMessage(chatId, "⏳ Creating your Teams meeting...");
   try {
-    const { title, dateStr, timeStr, durationMins } = session.data;
     const event = await createTeamsMeeting(title, dateStr, timeStr, durationMins, attendees, tz, session.createdBy);
     const joinUrl = event.onlineMeeting?.joinUrl || event.webLink;
     const hrs = Math.floor(durationMins / 60);
@@ -444,6 +480,7 @@ bot.onText(/\/help/, (msg) => {
     "/upcoming — Next 5 meetings (7 days)",
     "/history [n] — Last N past meetings (default 5)",
     "/summary &lt;name&gt; — AI summary of a past meeting",
+    "/pdf &lt;name&gt; — Export meeting minutes as PDF",
     "/notes &lt;name&gt; — View or add notes",
     "/notes &lt;name&gt; | &lt;text&gt; — Add a note",
     "/attendance &lt;name&gt; — View attendees",
@@ -469,9 +506,68 @@ bot.onText(/\/help/, (msg) => {
     "/removemember &lt;name&gt; — Remove a member",
     "/cancel — Abort any active wizard",
     "",
+    "<b>🤖 AI</b>",
+    "/ask &lt;question&gt; — Chat with your meeting history",
+    "",
     "/help — Show this message",
   ].join("\n");
   bot.sendMessage(msg.chat.id, help, { parse_mode: "HTML" });
+});
+
+// /ask <question> — AI chat over meeting history and summaries
+bot.onText(/\/ask(?:\s+([\s\S]+))?/, async (msg, match) => {
+  const question = match && match[1] ? match[1].trim() : "";
+  if (!question) {
+    return bot.sendMessage(msg.chat.id,
+      "Usage: <code>/ask what was decided about deployment?</code>\nAsk anything about past meetings.",
+      { parse_mode: "HTML" });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "your_gemini_api_key_here") {
+    return bot.sendMessage(msg.chat.id, "❌ GEMINI_API_KEY not configured.", { parse_mode: "HTML" });
+  }
+
+  bot.sendMessage(msg.chat.id, "🔍 Searching meeting history...");
+
+  // Gather context: last 10 meetings with summaries + their tasks
+  const meetings = await getRecentMeetings(10);
+  const tasks = await getPendingTasks();
+
+  const context = meetings.map((m) => {
+    const taskList = tasks
+      .filter((t) => t.meeting_id === m.id)
+      .map((t) => `  - ${t.person}: ${t.task}${t.deadline ? ` (by ${t.deadline})` : ""}`)
+      .join("\n");
+    return [
+      `Meeting: ${m.subject} (${m.start_time})`,
+      m.summary ? `Summary: ${m.summary}` : "",
+      taskList ? `Tasks:\n${taskList}` : "",
+    ].filter(Boolean).join("\n");
+  }).join("\n\n---\n\n");
+
+  const { GoogleGenerativeAI } = require("@google/generative-ai");
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+  const prompt = `You are a meeting assistant with access to meeting history. Answer the user's question based only on the data below.
+Be concise and helpful. Use bullet points if listing multiple items. If the answer cannot be found, say so clearly.
+
+Meeting history:
+${context.substring(0, 5000)}
+
+User question: ${question}`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const answer = result.response.text().trim();
+    bot.sendMessage(msg.chat.id,
+      `🤖 <b>Answer:</b>\n\n${answer}`,
+      { parse_mode: "HTML" });
+  } catch (err) {
+    logger.error("AI ask error:", err);
+    bot.sendMessage(msg.chat.id, "❌ AI search failed. Try again later.");
+  }
 });
 
 // /history — show recent meetings from DB
@@ -520,7 +616,96 @@ bot.onText(/\/summary(?:\s+(.+))?/, async (msg, match) => {
     { parse_mode: "HTML" });
 });
 
-// Helper: build a paginated tasks message + keyboard for the given page
+// /pdf <keyword> — generate PDF meeting minutes and send as document
+bot.onText(/\/pdf(?:\s+(.+))?/, async (msg, match) => {
+  const keyword = match && match[1] ? match[1].trim() : null;
+  if (!keyword) {
+    return bot.sendMessage(msg.chat.id,
+      "Usage: <code>/pdf &lt;meeting name&gt;</code>\nExample: <code>/pdf sprint planning</code>",
+      { parse_mode: "HTML" });
+  }
+  const meetings = await getMeetingByKeyword(keyword);
+  if (!meetings.length) {
+    return bot.sendMessage(msg.chat.id,
+      `📭 No meetings found matching "<b>${keyword}</b>".`,
+      { parse_mode: "HTML" });
+  }
+  const found = meetings[0];
+  const tasks = (await getPendingTasks()).filter((t) => t.meeting_id === found.id);
+  const notes = await getNotesByMeetingId(found.id);
+  const attendance = await getAttendance(found.id);
+
+  bot.sendMessage(msg.chat.id, "📄 Generating PDF...");
+
+  const PDFDocument = require("pdfkit");
+  const { PassThrough } = require("stream");
+  const tz = process.env.TIMEZONE || "Asia/Kolkata";
+  const date = new Date(found.start_time.replace(/Z?$/, "Z"));
+  const dateStr = date.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: tz });
+  const timeStr = date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: tz });
+
+  const doc = new PDFDocument({ margin: 50 });
+  const stream = new PassThrough();
+  const chunks = [];
+  stream.on("data", (c) => chunks.push(c));
+  doc.pipe(stream);
+
+  // ── Header ──────────────────────────────────────────────────────
+  doc.fontSize(20).font("Helvetica-Bold").text("Meeting Minutes", { align: "center" });
+  doc.moveDown(0.5);
+  doc.fontSize(16).font("Helvetica-Bold").text(found.subject, { align: "center" });
+  doc.fontSize(11).font("Helvetica").fillColor("#555555")
+     .text(`${dateStr}  ·  ${timeStr}`, { align: "center" });
+  doc.moveDown();
+  doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke("#cccccc").moveDown();
+
+  // ── Attendees ────────────────────────────────────────────────────
+  if (attendance.length) {
+    doc.fontSize(13).font("Helvetica-Bold").fillColor("#000000").text("Attendees");
+    doc.fontSize(11).font("Helvetica").text(attendance.map((a) => a.person).join(", "));
+    doc.moveDown();
+  }
+
+  // ── AI Summary ───────────────────────────────────────────────────
+  if (found.summary) {
+    doc.fontSize(13).font("Helvetica-Bold").text("AI Summary");
+    doc.fontSize(11).font("Helvetica").text(found.summary, { lineGap: 3 });
+    doc.moveDown();
+  }
+
+  // ── Notes ────────────────────────────────────────────────────────
+  if (notes.length) {
+    doc.fontSize(13).font("Helvetica-Bold").text("Notes");
+    notes.forEach((n) => doc.fontSize(11).font("Helvetica").text(`• ${n.note}`, { lineGap: 2 }));
+    doc.moveDown();
+  }
+
+  // ── Action Items ─────────────────────────────────────────────────
+  if (tasks.length) {
+    doc.fontSize(13).font("Helvetica-Bold").text("Action Items");
+    tasks.forEach((t) => {
+      const deadline = t.deadline ? `  [by ${t.deadline}]` : "";
+      doc.fontSize(11).font("Helvetica-Bold").text(`${t.person}`, { continued: true })
+         .font("Helvetica").text(` — ${t.task}${deadline}`, { lineGap: 3 });
+    });
+    doc.moveDown();
+  }
+
+  // ── Footer ───────────────────────────────────────────────────────
+  doc.fontSize(9).fillColor("#aaaaaa")
+     .text(`Generated by ClawMeetBot · ${new Date().toLocaleDateString("en-IN", { timeZone: tz })}`, { align: "center" });
+
+  doc.end();
+
+  await new Promise((resolve) => stream.on("end", resolve));
+  const pdfBuffer = Buffer.concat(chunks);
+  const filename = `${found.subject.replace(/[^a-z0-9]/gi, "_").substring(0, 40)}_minutes.pdf`;
+
+  bot.sendDocument(msg.chat.id, pdfBuffer, {}, {
+    filename,
+    contentType: "application/pdf",
+  });
+});
 async function buildTasksPage(page) {
   const tasks = await getPendingTasks();
   if (!tasks.length) return null;

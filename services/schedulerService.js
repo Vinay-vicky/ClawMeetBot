@@ -79,6 +79,26 @@ async function checkReminders(event, nowMs) {
   if (minutesSinceEnd >= 5 && minutesSinceEnd <= 30) {
     processMeetingEnd(event).catch((e) => logger.error("Summary error:", e));
   }
+
+  // Pre-meeting AI prep: 30 min before, send agenda reminder (once per meeting)
+  if (diffMin >= 27 && diffMin <= 33 && !(await hasReminderBeenSent(event.id, "prep30"))) {
+    await markReminderSent(event.id, "prep30");
+    const subject = (event.subject || "Meeting").trim();
+    const startStr = fmtTime(event.start.dateTime || event.start.date);
+    sendToGroup([
+      `🧠 <b>Meeting Prep — 30 min reminder</b>`,
+      ``,
+      `📌 <b>${subject}</b> starts at ${startStr}`,
+      ``,
+      `<b>Before you join:</b>`,
+      `• Review the agenda and prior notes: <code>/notes ${subject.split(" ")[0]}</code>`,
+      `• Check pending tasks: <code>/tasks</code>`,
+      `• Know who's attending: <code>/attendance ${subject.split(" ")[0]}</code>`,
+      ``,
+      `🔗 Join: ${joinUrl(event)}`,
+    ].join("\n"));
+    logger.info(`Pre-meeting prep sent: ${subject}`);
+  }
 }
 
 function startScheduler() {
@@ -154,7 +174,55 @@ function startScheduler() {
     sendToGroup(lines.join("\n"));
   }, { timezone: TZ() });
 
-  logger.info("Scheduler started — smart reminders active (10min / 1hr / 1day) + daily digest + overdue alerts at 9 AM");
+  // Smart task reminder: 8:00 AM — remind about tasks due TODAY
+  cron.schedule("0 8 * * *", async () => {
+    const tasks = await getTasksWithDeadlines().catch(() => []);
+    if (!tasks.length) return;
+
+    const tz = TZ();
+    const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: tz }); // YYYY-MM-DD
+
+    const dueToday = tasks.filter((t) => {
+      const d = t.deadline.toLowerCase()
+        .replace(/^by\s+/i, "")
+        .replace(/^before\s+/i, "");
+      const parsed = new Date(d);
+      if (!isNaN(parsed)) return parsed.toLocaleDateString("en-CA") === todayStr;
+      return false;
+    });
+
+    const dueTomorrow = tasks.filter((t) => {
+      const d = t.deadline.toLowerCase()
+        .replace(/^by\s+/i, "")
+        .replace(/^before\s+/i, "");
+      const parsed = new Date(d);
+      if (!isNaN(parsed)) {
+        const tomorrowStr = new Date(Date.now() + 86400000).toLocaleDateString("en-CA", { timeZone: tz });
+        return parsed.toLocaleDateString("en-CA") === tomorrowStr;
+      }
+      return false;
+    });
+
+    if (!dueToday.length && !dueTomorrow.length) return;
+
+    const lines = ["⏰ <b>Task Deadline Reminders</b>", ""];
+    if (dueToday.length) {
+      lines.push("🔴 <b>Due TODAY:</b>");
+      dueToday.forEach((t) => {
+        lines.push(`• <b>${t.person}</b> — ${t.task}  <code>/done ${t.id}</code>`);
+      });
+      lines.push("");
+    }
+    if (dueTomorrow.length) {
+      lines.push("🟡 <b>Due Tomorrow:</b>");
+      dueTomorrow.forEach((t) => {
+        lines.push(`• <b>${t.person}</b> — ${t.task}  <code>/done ${t.id}</code>`);
+      });
+    }
+    sendToGroup(lines.join("\n"));
+  }, { timezone: TZ() });
+
+  logger.info("Scheduler started — smart reminders active (10min / 1hr / 1day / prep30) + daily digest + overdue alerts + task deadline reminders");
 }
 
 module.exports = { startScheduler };
