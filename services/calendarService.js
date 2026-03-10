@@ -211,4 +211,48 @@ async function deleteCalendarEvent(eventId) {
   }
 }
 
-module.exports = { getUpcomingMeetings, getScheduledMeetings, createTeamsMeeting, deleteCalendarEvent };
+/**
+ * Fetch recording items for a meeting identified by its joinWebUrl.
+ * Requires OnlineMeetingRecording.Read.All on the Azure app.
+ * Returns null on permission errors, [] if no recordings exist.
+ */
+async function getMeetingRecordings(joinUrl) {
+  const tenantId     = process.env.TEAMS_TENANT_ID;
+  const clientId     = process.env.TEAMS_APP_ID;
+  const clientSecret = process.env.TEAMS_APP_PASSWORD;
+  const userEmail    = process.env.OUTLOOK_USER_EMAIL;
+  if (!tenantId || !clientId || !clientSecret || !userEmail || !joinUrl) return null;
+
+  try {
+    const credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+    const { token }  = await credential.getToken("https://graph.microsoft.com/.default");
+
+    // Resolve joinUrl → onlineMeeting.id
+    const filter = encodeURIComponent(`JoinWebUrl eq '${joinUrl}'`);
+    const omRes  = await fetch(
+      `https://graph.microsoft.com/v1.0/users/${userEmail}/onlineMeetings?$filter=${filter}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!omRes.ok) return null;
+    const omData = await omRes.json();
+    const om     = omData.value && omData.value[0];
+    if (!om) return null;
+
+    // Fetch recordings list
+    const recRes = await fetch(
+      `https://graph.microsoft.com/v1.0/users/${userEmail}/onlineMeetings/${om.id}/recordings`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!recRes.ok) {
+      logger.warn("Recordings API error:", await recRes.text());
+      return [];
+    }
+    const recData = await recRes.json();
+    return recData.value || [];
+  } catch (err) {
+    logger.error("getMeetingRecordings error:", err);
+    return null;
+  }
+}
+
+module.exports = { getUpcomingMeetings, getScheduledMeetings, createTeamsMeeting, deleteCalendarEvent, getMeetingRecordings };

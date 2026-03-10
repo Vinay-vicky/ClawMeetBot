@@ -297,6 +297,64 @@ async function removeMemberByName(name) {
   return res.rowsAffected;
 }
 
+/** Advanced analytics for the dashboard and /intelligence command */
+async function getMeetingAnalytics() {
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  const now = new Date();
+
+  // Meetings per week for the last 4 weeks (start_time is ISO string)
+  const weeks = [];
+  for (let i = 0; i < 4; i++) {
+    const from = new Date(now - (i + 1) * weekMs).toISOString();
+    const to   = new Date(now - i * weekMs).toISOString();
+    const r = await db.execute({
+      sql: "SELECT COUNT(*) as cnt FROM meetings WHERE start_time >= ? AND start_time < ?",
+      args: [from, to],
+    });
+    const label = i === 0 ? "This wk" : i === 1 ? "Last wk" : `${i + 1}w ago`;
+    weeks.push({ week: label, count: Number(r.rows[0].cnt) });
+  }
+  weeks.reverse();
+
+  // Task completion breakdown
+  const taskRows = await db.execute("SELECT done, COUNT(*) as cnt FROM tasks GROUP BY done");
+  let doneTasks = 0;
+  let pendingTasksCount = 0;
+  for (const row of taskRows.rows) {
+    if (Number(row.done)) doneTasks += Number(row.cnt);
+    else pendingTasksCount += Number(row.cnt);
+  }
+
+  // Top assignees (across all tasks)
+  const assigneeRows = await db.execute(
+    "SELECT person, COUNT(*) as cnt FROM tasks GROUP BY person ORDER BY cnt DESC LIMIT 5"
+  );
+
+  // Busiest days of week (0=Sun … 6=Sat)
+  const dayRows = await db.execute(
+    "SELECT strftime('%w', start_time) as dow, COUNT(*) as cnt FROM meetings GROUP BY dow ORDER BY cnt DESC LIMIT 3"
+  );
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const totalRow = await db.execute("SELECT COUNT(*) as cnt FROM meetings");
+
+  return {
+    weeks,
+    doneTasks,
+    pendingTasks: pendingTasksCount,
+    completionRate:
+      doneTasks + pendingTasksCount > 0
+        ? Math.round((doneTasks / (doneTasks + pendingTasksCount)) * 100)
+        : 0,
+    topAssignees: assigneeRows.rows.map((r) => ({ person: r.person, count: Number(r.cnt) })),
+    busiestDays: dayRows.rows.map((r) => ({
+      day: dayNames[Number(r.dow)] || r.dow,
+      count: Number(r.cnt),
+    })),
+    totalMeetings: Number(totalRow.rows[0].cnt),
+  };
+}
+
 module.exports = {
   initDb,
   saveMeeting, hasReminderBeenSent, markReminderSent, saveSummary,
@@ -306,5 +364,6 @@ module.exports = {
   searchTasks, clearDoneTasks, editTask, getTaskById, getTasksWithDeadlines,
   saveAttendance, getAttendance,
   addTeamMember, getAllMembers, removeMemberByName,
+  getMeetingAnalytics,
 };
 

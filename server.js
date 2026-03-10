@@ -9,6 +9,7 @@ const { startScheduler } = require("./services/schedulerService");
 const { getMeetings } = require("./services/teamsService");
 const { generateMeetingSummary } = require("./services/aiSummaryService");
 const { initDb, getRecentMeetings, getPendingTasks, markTaskDone } = require("./services/dbService");
+const dashboardRouter = require("./routes/dashboard");
 
 // ── Sentry (error monitoring) ─────────────────────────────────────────────────
 if (process.env.SENTRY_DSN) {
@@ -46,6 +47,9 @@ const webhookLimiter = rateLimit({
 
 app.use("/webhook", webhookLimiter);
 app.use(defaultLimiter);
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+app.use("/dashboard", dashboardRouter);
 
 // ── Telegram webhook secret verification ─────────────────────────────────────
 function verifyTelegramSecret(req, res, next) {
@@ -298,6 +302,8 @@ initDb().then(() => {
       { command: "edittask",      description: "Edit a task text or deadline" },
       { command: "export",        description: "Export all pending tasks as text" },
       { command: "ask",           description: "AI chat with meeting history" },
+      { command: "intelligence",  description: "Advanced meeting analytics" },
+      { command: "recordings",    description: "Find a meeting recording" },
       { command: "attendance",    description: "View or record meeting attendance" },
       { command: "cancel",        description: "Abort active wizard" },
       { command: "help",          description: "Show all commands" },

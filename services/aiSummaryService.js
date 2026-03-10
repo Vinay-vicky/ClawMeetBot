@@ -79,5 +79,51 @@ async function generateMeetingSummary(transcriptText, subject = "Meeting") {
   return lines.join("\n");
 }
 
-module.exports = { analyzeMeeting, generateMeetingSummary };
+/**
+ * Use Gemini to map a natural-language message to a bot command.
+ * Returns { command, args, confidence, explanation } or null on failure.
+ */
+async function parseNaturalLanguageCommand(text) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "your_gemini_api_key_here") return null;
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const result = await model.generateContent(
+      `You are a command parser for a Microsoft Teams meeting bot in Telegram.
+Map the user message to ONE bot command. Return ONLY valid JSON, no markdown.
+
+Available commands:
+/meet [Title date time duration] — create a Teams meeting
+/next — next upcoming meeting
+/today — all meetings today
+/week — full week schedule
+/upcoming — next 5 meetings
+/tasks — view pending action items
+/stats — meeting and task statistics
+/history [n] — past meetings
+/summary [name] — AI summary of a meeting
+/ask [question] — AI Q&A over meeting history
+/intelligence — advanced analytics
+/recordings [name] — find meeting recording
+/notes [name] — meeting notes
+/remind [name] — tasks for a person
+/search [keyword] — search tasks
+
+User message: "${text.substring(0, 300)}"
+
+Respond as JSON: {"command":"/tasks","args":"","confidence":0.9,"explanation":"user wants to see tasks"}
+If no mapping found: {"command":null,"confidence":0,"explanation":"unclear"}`
+    );
+    const raw = result.response.text().trim()
+      .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+    return JSON.parse(raw);
+  } catch (err) {
+    logger.error("NL parse error:", err);
+    return null;
+  }
+}
+
+module.exports = { analyzeMeeting, generateMeetingSummary, parseNaturalLanguageCommand };
 

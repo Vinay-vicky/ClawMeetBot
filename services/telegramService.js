@@ -3,8 +3,10 @@ const logger = require("../utils/logger");
 const { getRecentMeetings, getPendingTasks, markTaskDone, getMeetingByKeyword, getTasksByPerson,
         saveTask, getMeetingStats, getTaskStats, addMeetingNote, getNotesByMeetingId,
         searchTasks, clearDoneTasks, editTask, getTaskById, saveAttendance, getAttendance,
-        addTeamMember, getAllMembers, removeMemberByName } = require("./dbService");
-const { getScheduledMeetings, createTeamsMeeting, deleteCalendarEvent } = require("./calendarService");
+        addTeamMember, getAllMembers, removeMemberByName, getMeetingAnalytics } = require("./dbService");
+const { getScheduledMeetings, createTeamsMeeting, deleteCalendarEvent, getMeetingRecordings } = require("./calendarService");
+const { parseNaturalLanguageCommand } = require("./aiSummaryService");
+const { enqueue } = require("../utils/messageQueue");
 
 if (!process.env.TELEGRAM_BOT_TOKEN) {
   logger.error("TELEGRAM_BOT_TOKEN is missing from .env");
@@ -133,7 +135,7 @@ function sendToGroup(message) {
     logger.error("TELEGRAM_GROUP_ID not set in .env");
     return;
   }
-  bot.sendMessage(groupId, message, { parse_mode: "HTML" })
+  enqueue(() => bot.sendMessage(groupId, message, { parse_mode: "HTML" }))
     .then(() => logger.info("Message sent to group"))
     .catch((err) => logger.error("Send error:", err));
 }
@@ -180,6 +182,8 @@ bot.onText(/\/start/, (msg) => {
     "",
     "<b>🤖 AI</b>",
     "/ask &lt;question&gt; — Chat with your meeting history",
+    "/intelligence — Advanced meeting analytics",
+    "/recordings &lt;name&gt; — Find a meeting recording",
     "",
     "/help — Show this menu again",
     "",
@@ -508,6 +512,8 @@ bot.onText(/\/help/, (msg) => {
     "",
     "<b>🤖 AI</b>",
     "/ask &lt;question&gt; — Chat with your meeting history",
+    "/intelligence — Advanced meeting analytics",
+    "/recordings &lt;name&gt; — Find a meeting recording",
     "",
     "/help — Show this message",
   ].join("\n");
@@ -567,6 +573,103 @@ User question: ${question}`;
   } catch (err) {
     logger.error("AI ask error:", err);
     bot.sendMessage(msg.chat.id, "❌ AI search failed. Try again later.");
+  }
+});
+
+// /intelligence — advanced meeting analytics
+bot.onText(/\/intelligence/, async (msg) => {
+  bot.sendMessage(msg.chat.id, "📊 Crunching meeting data...");
+  try {
+    const a = await getMeetingAnalytics();
+    const weekLine = a.weeks.map((w) => `${w.week}: <b>${w.count}</b>`).join("  |  ");
+    const assigneeLines = a.topAssignees.length
+      ? a.topAssignees.map((x, i) => `  ${i + 1}. ${x.person} — ${x.count} task${x.count !== 1 ? "s" : ""}`).join("\n")
+      : "  No data yet";
+    const dayLines = a.busiestDays.length
+      ? a.busiestDays.map((d) => `  ${d.day}: ${d.count} meeting${d.count !== 1 ? "s" : ""}`).join("\n")
+      : "  No data yet";
+    const dashUrl = process.env.RENDER_EXTERNAL_URL
+      ? `${process.env.RENDER_EXTERNAL_URL}/dashboard` : "/dashboard";
+    const lines = [
+      "📊 <b>Meeting Intelligence</b>",
+      "",
+      "📅 <b>Meetings per week:</b>",
+      weekLine,
+      "",
+      `🗂 <b>Total recorded:</b> ${a.totalMeetings} meeting${a.totalMeetings !== 1 ? "s" : ""}`,
+      "",
+      "✅ <b>Task Completion:</b>",
+      `  Done: ${a.doneTasks}  |  Pending: ${a.pendingTasks}  |  Rate: <b>${a.completionRate}%</b>`,
+      "",
+      "👤 <b>Top Assignees:</b>",
+      assigneeLines,
+      "",
+      "📆 <b>Busiest Days:</b>",
+      dayLines,
+      "",
+      `<i>🌐 Full dashboard: <a href="${dashUrl}">${dashUrl}</a></i>`,
+    ];
+    bot.sendMessage(msg.chat.id, lines.join("\n"), { parse_mode: "HTML", disable_web_page_preview: true });
+  } catch (err) {
+    logger.error("/intelligence error:", err);
+    bot.sendMessage(msg.chat.id, "❌ Could not load analytics. Try again later.");
+  }
+});
+
+// /recordings [keyword] — find and show recording for a past meeting
+bot.onText(/\/recordings(?:\s+(.+))?/, async (msg, match) => {
+  const keyword = match && match[1] ? match[1].trim() : null;
+  if (!keyword) {
+    return bot.sendMessage(msg.chat.id,
+      "Usage: <code>/recordings &lt;meeting name&gt;</code>\nExample: <code>/recordings sprint planning</code>",
+      { parse_mode: "HTML" });
+  }
+  bot.sendMessage(msg.chat.id, "🔍 Looking up recordings...");
+  try {
+    const meetings = await getMeetingByKeyword(keyword);
+    if (!meetings.length) {
+      return bot.sendMessage(msg.chat.id,
+        `📭 No meetings found matching "<b>${keyword}</b>". Try /history to see meeting names.`,
+        { parse_mode: "HTML" });
+    }
+    const meeting = meetings[0];
+    const tz = process.env.TIMEZONE || "Asia/Kolkata";
+    const dateStr = new Date(meeting.start_time.replace(/Z?$/, "Z"))
+      .toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: tz });
+    const lines = [
+      `📹 <b>Recordings: ${meeting.subject}</b>`,
+      `<i>${dateStr}${meeting.organizer ? " · " + meeting.organizer : ""}</i>`,
+      "",
+    ];
+    const recordings = meeting.join_url ? await getMeetingRecordings(meeting.join_url) : null;
+    if (recordings === null) {
+      lines.push(
+        "⚠️ Recording access unavailable.",
+        "<i>Grant <code>OnlineMeetingRecording.Read.All</code> permission to the Azure app to enable this feature.</i>",
+      );
+    } else if (recordings.length === 0) {
+      lines.push(
+        "📭 No recordings found for this meeting.",
+        "<i>Either it wasn\u2019t recorded or the recording is still processing.</i>",
+      );
+    } else {
+      recordings.forEach((r, i) => {
+        const created = r.createdDateTime
+          ? new Date(r.createdDateTime).toLocaleDateString("en-IN", { timeZone: tz, day: "numeric", month: "short" })
+          : "";
+        lines.push(`🎬 <b>Recording ${i + 1}</b>${created ? " — " + created : ""}`);
+        if (r.recordingContentUrl) {
+          lines.push(`   <a href="${r.recordingContentUrl}">▶️ Watch Recording</a>`);
+        }
+      });
+    }
+    if (meeting.summary) {
+      lines.push("", `📝 AI summary available — <code>/summary ${keyword}</code>`);
+    }
+    bot.sendMessage(msg.chat.id, lines.join("\n"), { parse_mode: "HTML", disable_web_page_preview: true });
+  } catch (err) {
+    logger.error("/recordings error:", err);
+    bot.sendMessage(msg.chat.id, "❌ Could not fetch recordings. Try again later.");
   }
 });
 
@@ -1394,6 +1497,24 @@ bot.on("message", async (msg) => {
     return bot.sendMessage(msg.chat.id,
       `✅ <b>${name}</b> (<code>${email}</code>) saved to team.\n\nThey'll appear in the attendee picker when you use /meet.`,
       { parse_mode: "HTML" });
+  }
+
+  // Natural-language routing — activates for non-command messages in private chats
+  if (msg.chat.type === "private") {
+    try {
+      const nl = await parseNaturalLanguageCommand(text);
+      if (nl && nl.command && nl.confidence >= 0.65) {
+        await bot.sendMessage(msg.chat.id,
+          `💡 <b>Got it!</b> Running: <code>${nl.command}${nl.args ? " " + nl.args : ""}</code>`,
+          { parse_mode: "HTML" });
+        bot.emit("message", { ...msg, text: nl.command + (nl.args ? " " + nl.args : "") });
+        return;
+      }
+    } catch (_) { /* Gemini unavailable — fall through */ }
+    bot.sendMessage(msg.chat.id,
+      "🤔 I didn\u2019t catch that. Try /help to see all commands, or /ask to chat about meetings.",
+      { parse_mode: "HTML" });
+    return;
   }
 
   logger.info(`[${msg.chat.type}] ${msg.from.username || msg.from.first_name}: ${text}`);
