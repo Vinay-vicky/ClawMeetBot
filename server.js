@@ -302,6 +302,7 @@ initDb().then(() => {
       { command: "edittask",      description: "Edit a task text or deadline" },
       { command: "export",        description: "Export all pending tasks as text" },
       { command: "ask",           description: "AI chat with meeting history" },
+      { command: "dashboard",      description: "Open the web analytics dashboard" },
       { command: "intelligence",  description: "Advanced meeting analytics" },
       { command: "recordings",    description: "Find a meeting recording" },
       { command: "attendance",    description: "View or record meeting attendance" },

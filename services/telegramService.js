@@ -569,6 +569,17 @@ bot.onText(/\/ask(?:\s+([\s\S]+))?/, async (msg, match) => {
   }
 });
 
+// /dashboard — send link to the web dashboard
+bot.onText(/\/dashboard/, (msg) => {
+  const base = process.env.RENDER_EXTERNAL_URL || "http://localhost:" + (process.env.PORT || 3000);
+  const dashUrl = `${base}/dashboard`;
+  bot.sendMessage(
+    msg.chat.id,
+    `📊 <b>Web Dashboard</b>\n\nOpen your live meeting analytics:\n<a href="${dashUrl}">${dashUrl}</a>`,
+    { parse_mode: "HTML", disable_web_page_preview: false }
+  );
+});
+
 // /intelligence — advanced meeting analytics
 bot.onText(/\/intelligence/, async (msg) => {
   bot.sendMessage(msg.chat.id, "📊 Crunching meeting data...");
