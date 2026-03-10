@@ -529,9 +529,10 @@ bot.onText(/\/ask(?:\s+([\s\S]+))?/, async (msg, match) => {
       { parse_mode: "HTML" });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === "your_gemini_api_key_here") {
-    return bot.sendMessage(msg.chat.id, "❌ GEMINI_API_KEY not configured.", { parse_mode: "HTML" });
+  const hasKey = process.env.KIMI_API_KEY || process.env.OPENAI_API_KEY ||
+    (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "your_gemini_api_key_here");
+  if (!hasKey) {
+    return bot.sendMessage(msg.chat.id, "❌ No AI API key configured (KIMI_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY).", { parse_mode: "HTML" });
   }
 
   bot.sendMessage(msg.chat.id, "🔍 Searching meeting history...");
@@ -552,21 +553,13 @@ bot.onText(/\/ask(?:\s+([\s\S]+))?/, async (msg, match) => {
     ].filter(Boolean).join("\n");
   }).join("\n\n---\n\n");
 
-  const { GoogleGenerativeAI } = require("@google/generative-ai");
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
-  const prompt = `You are a meeting assistant with access to meeting history. Answer the user's question based only on the data below.
-Be concise and helpful. Use bullet points if listing multiple items. If the answer cannot be found, say so clearly.
-
-Meeting history:
-${context.substring(0, 5000)}
-
-User question: ${question}`;
+  const { callAI } = require("./aiSummaryService");
+  const systemPrompt = "You are a meeting assistant. Answer questions based only on the meeting history provided. Be concise. Use bullet points for lists. If the answer is not in the data, say so clearly.";
+  const userPrompt = `Meeting history:\n${context.substring(0, 5000)}\n\nQuestion: ${question}`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const answer = result.response.text().trim();
+    const answer = await callAI(systemPrompt, userPrompt);
+    if (!answer) throw new Error("No response from AI");
     bot.sendMessage(msg.chat.id,
       `🤖 <b>Answer:</b>\n\n${answer}`,
       { parse_mode: "HTML" });

@@ -1,23 +1,88 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const OpenAI = require("openai");
 const logger = require("../utils/logger");
 
 /**
- * Analyze a meeting transcript using Gemini.
- * Returns structured JSON: { keyPoints, decisions, tasks }
+ * Build an OpenAI-compatible client.
+ * Priority: Kimi K2 (KIMI_API_KEY) → Gemini-compat (GEMINI_API_KEY via OpenAI SDK)
+ * Falls back to Gemini's native SDK only if neither key is set.
+ */
+function getAIClient() {
+  if (process.env.KIMI_API_KEY) {
+    return {
+      client: new OpenAI({
+        apiKey: process.env.KIMI_API_KEY,
+        baseURL: "https://api.moonshot.ai/v1",
+      }),
+      model: "kimi-k2",
+    };
+  }
+  if (process.env.OPENAI_API_KEY) {
+    return {
+      client: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }),
+      model: "gpt-4o-mini",
+    };
+  }
+  return null; // no key configured
+}
+
+/**
+ * Call the AI with a single user prompt, return the response text.
+ * Supports Kimi K2 / OpenAI.  Returns null on error.
+ */
+async function callAI(systemPrompt, userPrompt) {
+  const cfg = getAIClient();
+  if (!cfg) {
+    // Last-resort: try Gemini native SDK if key present
+    if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "your_gemini_api_key_here") {
+      try {
+        const { GoogleGenerativeAI } = require("@google/generative-ai");
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const gModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const combined = systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
+        const result = await gModel.generateContent(combined);
+        return result.response.text().trim();
+      } catch (e) {
+        logger.error("Gemini fallback error:", e);
+        return null;
+      }
+    }
+    logger.warn("No AI API key configured (KIMI_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY)");
+    return null;
+  }
+
+  try {
+    const messages = [];
+    if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
+    messages.push({ role: "user", content: userPrompt });
+    const completion = await cfg.client.chat.completions.create({
+      model: cfg.model,
+      messages,
+      temperature: 0.3,
+    });
+    return completion.choices[0].message.content.trim();
+  } catch (err) {
+    logger.error("AI call error:", err);
+    return null;
+  }
+}
+
+/**
+ * Analyze a meeting transcript using Kimi K2 / OpenAI / Gemini.
+ * Returns structured JSON: { keyPoints, decisions, tasks, sentiment, topContributors }
  */
 async function analyzeMeeting(transcriptText, subject = "Meeting") {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === "your_gemini_api_key_here") return null;
+  if (!process.env.KIMI_API_KEY && !process.env.OPENAI_API_KEY &&
+      (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === "your_gemini_api_key_here")) {
+    return null;
+  }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
-  const prompt = `You are a professional meeting assistant specialising in extracting action items. Analyze this meeting transcript for "${subject}".
+  const systemPrompt = "You are a professional meeting assistant specialising in extracting action items. Return ONLY valid JSON — no markdown, no code blocks.";
+  const userPrompt = `Analyze this meeting transcript for "${subject}".
 
 Transcript:
 ${transcriptText.substring(0, 4000)}
 
-Return ONLY valid JSON (no markdown, no code blocks) in this exact format:
+Return this exact JSON shape:
 {
   "keyPoints": ["point 1", "point 2", "point 3"],
   "decisions": ["decision 1", "decision 2"],
@@ -31,22 +96,18 @@ Return ONLY valid JSON (no markdown, no code blocks) in this exact format:
 
 Rules:
 - Max 5 key points, max 3 decisions
-- Extract ALL action items — phrases like "X will ...", "X should ...", "X needs to ...", "assign X to ..."
-- Each task MUST have a real person's name from the transcript (no pronouns like "he/she/they")
-- deadline: extract exact deadline if stated (e.g. "by Thursday", "March 15", "end of week"). Empty string if none.
-- sentiment: overall meeting tone — one of: positive | neutral | negative
-- topContributors: up to 3 names who spoke most or drove the most decisions`;
+- Extract ALL action items — phrases like "X will ...", "X should ...", "X needs to ..."
+- Each task MUST have a real person's name (no pronouns)
+- deadline: exact deadline if stated, empty string if none
+- sentiment: positive | neutral | negative
+- topContributors: up to 3 names who drove the most decisions`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const raw = result.response.text().trim()
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```\s*$/i, "")
-      .trim();
+    const raw = (await callAI(systemPrompt, userPrompt) || "")
+      .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
     return JSON.parse(raw);
   } catch (err) {
-    logger.error("Gemini analyze error:", err);
+    logger.error("AI analyze parse error:", err);
     return null;
   }
 }
@@ -84,15 +145,9 @@ async function generateMeetingSummary(transcriptText, subject = "Meeting") {
  * Returns { command, args, confidence, explanation } or null on failure.
  */
 async function parseNaturalLanguageCommand(text) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === "your_gemini_api_key_here") return null;
-
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-    const result = await model.generateContent(
-      `You are a command parser for a Microsoft Teams meeting bot in Telegram.
-Map the user message to ONE bot command. Return ONLY valid JSON, no markdown.
+    const systemPrompt = "You are a command parser for a Microsoft Teams meeting bot in Telegram. Return ONLY valid JSON, no markdown.";
+    const userPrompt = `Map this user message to ONE bot command.
 
 Available commands:
 /meet [Title date time duration] — create a Teams meeting
@@ -114,10 +169,10 @@ Available commands:
 User message: "${text.substring(0, 300)}"
 
 Respond as JSON: {"command":"/tasks","args":"","confidence":0.9,"explanation":"user wants to see tasks"}
-If no mapping found: {"command":null,"confidence":0,"explanation":"unclear"}`
-    );
-    const raw = result.response.text().trim()
-      .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+If no mapping: {"command":null,"confidence":0,"explanation":"unclear"}`;
+    const rawText = await callAI(systemPrompt, userPrompt);
+    if (!rawText) return null;
+    const raw = rawText.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
     return JSON.parse(raw);
   } catch (err) {
     logger.error("NL parse error:", err);
@@ -125,5 +180,5 @@ If no mapping found: {"command":null,"confidence":0,"explanation":"unclear"}`
   }
 }
 
-module.exports = { analyzeMeeting, generateMeetingSummary, parseNaturalLanguageCommand };
+module.exports = { analyzeMeeting, generateMeetingSummary, parseNaturalLanguageCommand, callAI };
 
