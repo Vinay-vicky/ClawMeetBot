@@ -3,8 +3,7 @@ const logger = require("../utils/logger");
 
 /**
  * Build an OpenAI-compatible client.
- * Priority: Kimi K2 (KIMI_API_KEY) → Gemini-compat (GEMINI_API_KEY via OpenAI SDK)
- * Falls back to Gemini's native SDK only if neither key is set.
+ * Priority: Kimi K2 → OpenAI → Groq → Gemini (native SDK)
  */
 function getAIClient() {
   if (process.env.KIMI_API_KEY) {
@@ -22,7 +21,16 @@ function getAIClient() {
       model: "gpt-4o-mini",
     };
   }
-  return null; // no key configured
+  if (process.env.GROQ_API_KEY) {
+    return {
+      client: new OpenAI({
+        apiKey: process.env.GROQ_API_KEY,
+        baseURL: "https://api.groq.com/openai/v1",
+      }),
+      model: "llama-3.3-70b-versatile",
+    };
+  }
+  return null; // fall through to Gemini native SDK
 }
 
 /**
@@ -46,7 +54,7 @@ async function callAI(systemPrompt, userPrompt) {
         return null;
       }
     }
-    logger.warn("No AI API key configured (KIMI_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY)");
+    logger.warn("No AI API key configured (KIMI_API_KEY, OPENAI_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY)");
     return null;
   }
 
