@@ -1,4 +1,5 @@
 const { analyzeMeeting, generateMeetingSummary } = require("./aiSummaryService");
+const logger = require("../utils/logger");
 const fetch = require("node-fetch");
 const { ClientSecretCredential } = require("@azure/identity");
 const { saveSummary, hasReminderBeenSent, markReminderSent, saveTask } = require("./dbService");
@@ -60,7 +61,7 @@ async function fetchTranscript(joinUrl) {
     }
     return lines.join("\n").substring(0, 4000);
   } catch (err) {
-    console.error("⚠ Transcript fetch failed:", err.message);
+    logger.error("Transcript fetch failed:", err);
     return null;
   }
 }
@@ -81,7 +82,7 @@ async function processMeetingEnd(event) {
   const subject = (event.subject || "Meeting").trim();
   const joinUrl = (event.onlineMeeting && event.onlineMeeting.joinUrl) || event.webLink;
 
-  console.log(`📝 Meeting ended: ${subject} — generating summary...`);
+  logger.info(`Meeting ended: ${subject} — generating summary...`);
   await markReminderSent(event.id, reminderType);
 
   const tz = process.env.TIMEZONE || "Asia/Kolkata";
@@ -165,7 +166,7 @@ async function processMeetingEnd(event) {
       `📊 How was the meeting: "${subject}"?`,
       ["👍 Great", "👌 OK", "👎 Could be better"],
       { is_anonymous: false }
-    ).catch((e) => console.error("❌ Poll send failed:", e.message));
+    ).catch((e) => logger.error("Poll send failed:", e));
   }, 10000);
 }
 

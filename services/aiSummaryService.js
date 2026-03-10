@@ -1,4 +1,5 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const logger = require("../utils/logger");
 
 /**
  * Analyze a meeting transcript using Gemini.
@@ -41,7 +42,7 @@ Rules:
       .trim();
     return JSON.parse(raw);
   } catch (err) {
-    console.error("❌ Gemini analyze error:", err.message);
+    logger.error("Gemini analyze error:", err);
     return null;
   }
 }

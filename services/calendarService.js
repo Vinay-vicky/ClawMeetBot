@@ -1,4 +1,5 @@
 const { ClientSecretCredential } = require("@azure/identity");
+const logger = require("../utils/logger");
 const fetch = require("node-fetch");
 
 // Track already-notified event IDs to avoid sending duplicates
@@ -15,7 +16,7 @@ async function getUpcomingMeetings(windowMinutes = 15) {
   const userEmail = process.env.OUTLOOK_USER_EMAIL;
 
   if (!tenantId || !clientId || !clientSecret || !userEmail) {
-    console.error("❌ Missing Graph API credentials in .env");
+    logger.error("Missing Graph API credentials in .env");
     return [];
   }
 
@@ -40,7 +41,7 @@ async function getUpcomingMeetings(windowMinutes = 15) {
 
     if (!response.ok) {
       const err = await response.text();
-      console.error("❌ Graph API error:", err);
+      logger.error("Graph API error:", err);
       return [];
     }
 
@@ -53,7 +54,7 @@ async function getUpcomingMeetings(windowMinutes = 15) {
 
     return newEvents;
   } catch (err) {
-    console.error("❌ Calendar fetch error:", err.message);
+    logger.error("Calendar fetch error:", err);
     return [];
   }
 }
@@ -87,7 +88,7 @@ async function getScheduledMeetings(fromMinutes = -30, toMinutes = 1500) {
     const data = await response.json();
     return data.value || [];
   } catch (err) {
-    console.error("❌ Calendar fetch error:", err.message);
+    logger.error("Calendar fetch error:", err);
     return [];
   }
 }
@@ -171,11 +172,11 @@ async function createTeamsMeeting(subject, dateStr, timeStr, durationMins, atten
           headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
           body: JSON.stringify({ recordAutomatically: true }),
         });
-        console.log(`🔴 Auto-recording enabled for: ${subject}`);
+        logger.info(`Auto-recording enabled for: ${subject}`);
       }
     } catch (err) {
       // Non-fatal — meeting is still created, just log the warning
-      console.warn("⚠ Could not enable auto-recording:", err.message);
+      logger.warn("Could not enable auto-recording:", err);
     }
   }
 

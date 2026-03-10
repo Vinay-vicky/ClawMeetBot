@@ -1,4 +1,5 @@
 const TelegramBot = require("node-telegram-bot-api");
+const logger = require("../utils/logger");
 const { getRecentMeetings, getPendingTasks, markTaskDone, getMeetingByKeyword, getTasksByPerson,
         saveTask, getMeetingStats, getTaskStats, addMeetingNote, getNotesByMeetingId,
         searchTasks, clearDoneTasks, editTask, getTaskById, saveAttendance, getAttendance,
@@ -6,17 +7,17 @@ const { getRecentMeetings, getPendingTasks, markTaskDone, getMeetingByKeyword, g
 const { getScheduledMeetings, createTeamsMeeting, deleteCalendarEvent } = require("./calendarService");
 
 if (!process.env.TELEGRAM_BOT_TOKEN) {
-  console.error("❌ ERROR: TELEGRAM_BOT_TOKEN is missing from .env");
+  logger.error("TELEGRAM_BOT_TOKEN is missing from .env");
   process.exit(1);
 }
 
-console.log("✅ Token loaded:", process.env.TELEGRAM_BOT_TOKEN.substring(0, 10) + "...");
+logger.info("Token loaded: " + process.env.TELEGRAM_BOT_TOKEN.substring(0, 10) + "...");
 
 // Use polling locally, webhook on Render (avoids 409 conflict with cloud)
 const isProduction = !!process.env.RENDER_EXTERNAL_URL;
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, isProduction ? {} : { polling: true });
-if (!isProduction) console.log("\uD83D\uDD04 Bot running in polling mode (local dev)");
-else console.log("\uD83D\uDD17 Bot running in webhook mode (Render)");
+if (!isProduction) logger.info("Bot running in polling mode (local dev)");
+else logger.info("Bot running in webhook mode (Render)");
 
 // In-memory state for /meet wizard: chatId -> { step, data }
 const meetSessions = new Map();
@@ -129,12 +130,12 @@ function parseInlineMeet(text, tz) {
 function sendToGroup(message) {
   const groupId = process.env.TELEGRAM_GROUP_ID;
   if (!groupId) {
-    console.error("❌ TELEGRAM_GROUP_ID not set in .env");
+    logger.error("TELEGRAM_GROUP_ID not set in .env");
     return;
   }
   bot.sendMessage(groupId, message, { parse_mode: "HTML" })
-    .then(() => console.log("✅ Message sent to group"))
-    .catch((err) => console.error("❌ Send error:", err.message));
+    .then(() => logger.info("Message sent to group"))
+    .catch((err) => logger.error("Send error:", err));
 }
 
 // /start — welcome message
@@ -365,7 +366,7 @@ async function finishMeetingCreation(chatId, session, attendees) {
     bot.sendMessage(chatId, message, { parse_mode: "HTML", disable_web_page_preview: true });
     sendToGroup(message);
   } catch (err) {
-    console.error("❌ createTeamsMeeting error:", err.message);
+    logger.error("createTeamsMeeting error:", err);
     bot.sendMessage(chatId,
       `❌ Failed to create meeting: <code>${err.message.substring(0, 300)}</code>`,
       { parse_mode: "HTML" });
@@ -423,7 +424,7 @@ async function handleCancelSelection(msg, session, text) {
     bot.sendMessage(chatId, message, { parse_mode: "HTML" });
     sendToGroup(message);
   } catch (err) {
-    console.error("❌ deleteCalendarEvent error:", err.message);
+    logger.error("deleteCalendarEvent error:", err);
     bot.sendMessage(chatId,
       `❌ Failed to cancel: <code>${err.message.substring(0, 200)}</code>`,
       { parse_mode: "HTML" });
@@ -1210,12 +1211,12 @@ bot.on("message", async (msg) => {
       { parse_mode: "HTML" });
   }
 
-  console.log(`[${msg.chat.type}] ${msg.from.username || msg.from.first_name}: ${text}`);
+  logger.info(`[${msg.chat.type}] ${msg.from.username || msg.from.first_name}: ${text}`);
 });
 
-bot.on("polling_error", (err) => console.error("❌ Polling error:", err.message));
+bot.on("polling_error", (err) => logger.error("Polling error:", err));
 
-process.on("unhandledRejection", (reason) => console.error("❌ Unhandled Rejection:", reason));
-process.on("uncaughtException", (err) => console.error("❌ Uncaught Exception:", err.message));
+process.on("unhandledRejection", (reason) => logger.error("Unhandled Rejection:", reason));
+process.on("uncaughtException", (err) => logger.error("Uncaught Exception:", err));
 
 module.exports = { bot, sendToGroup };

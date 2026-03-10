@@ -1,4 +1,5 @@
 const { createClient } = require("@libsql/client");
+const logger = require("../utils/logger");
 
 // If TURSO_DATABASE_URL is set → use cloud Turso DB (persistent on Render)
 // Otherwise → fall back to local file (dev only, wiped on Render redeploy)
@@ -66,7 +67,7 @@ async function initDb() {
       created_at TEXT DEFAULT (datetime('now'))
     );
   `);
-  console.log("✅ Database ready" + (process.env.TURSO_DATABASE_URL ? " (Turso cloud)" : " (local SQLite)"));
+  logger.info("Database ready" + (process.env.TURSO_DATABASE_URL ? " (Turso cloud)" : " (local SQLite)"));
 }
 
 /** Save a Graph API event to DB (ignores duplicates) */

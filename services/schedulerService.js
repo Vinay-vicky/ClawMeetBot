@@ -1,4 +1,5 @@
 const cron = require("node-cron");
+const logger = require("../utils/logger");
 const { sendToGroup } = require("./telegramService");
 const { getScheduledMeetings } = require("./calendarService");
 const { saveMeeting, hasReminderBeenSent, markReminderSent, getTasksWithDeadlines } = require("./dbService");
@@ -58,25 +59,25 @@ async function checkReminders(event, nowMs) {
   if (diffMin >= 1425 && diffMin <= 1455 && !(await hasReminderBeenSent(event.id, "1day"))) {
     sendToGroup(buildReminderMessage(event, "Meeting Tomorrow", "🔔"));
     await markReminderSent(event.id, "1day");
-    console.log(`🔔 1-day reminder sent: ${event.subject}`);
+    logger.info(`1-day reminder sent: ${event.subject}`);
   }
 
   if (diffMin >= 50 && diffMin <= 70 && !(await hasReminderBeenSent(event.id, "1hour"))) {
     sendToGroup(buildReminderMessage(event, "Meeting in 1 Hour", "⏰"));
     await markReminderSent(event.id, "1hour");
-    console.log(`⏰ 1-hour reminder sent: ${event.subject}`);
+    logger.info(`1-hour reminder sent: ${event.subject}`);
   }
 
   if (diffMin >= 7 && diffMin <= 13 && !(await hasReminderBeenSent(event.id, "10min"))) {
     sendToGroup(buildReminderMessage(event, "Meeting Starts in 10 Minutes!", "🚨"));
     await markReminderSent(event.id, "10min");
-    console.log(`🚨 10-min reminder sent: ${event.subject}`);
+    logger.info(`10-min reminder sent: ${event.subject}`);
   }
 
   // Post-meeting: trigger summary 5-30 minutes after meeting ends
   const minutesSinceEnd = (nowMs - endMs) / 60000;
   if (minutesSinceEnd >= 5 && minutesSinceEnd <= 30) {
-    processMeetingEnd(event).catch((e) => console.error("Summary error:", e.message));
+    processMeetingEnd(event).catch((e) => logger.error("Summary error:", e));
   }
 }
 
@@ -153,7 +154,7 @@ function startScheduler() {
     sendToGroup(lines.join("\n"));
   }, { timezone: TZ() });
 
-  console.log("✅ Scheduler started — smart reminders active (10min / 1hr / 1day) + daily digest + overdue alerts at 9 AM");
+  logger.info("Scheduler started — smart reminders active (10min / 1hr / 1day) + daily digest + overdue alerts at 9 AM");
 }
 
 module.exports = { startScheduler };

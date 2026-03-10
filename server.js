@@ -1,13 +1,84 @@
 require("dotenv").config({ path: require("path").resolve(__dirname, ".env") });
 const express = require("express");
+const crypto = require("crypto");
+const Sentry = require("@sentry/node");
+const rateLimit = require("express-rate-limit");
+const logger = require("./utils/logger");
 const { sendToGroup, bot } = require("./services/telegramService");
 const { startScheduler } = require("./services/schedulerService");
 const { getMeetings } = require("./services/teamsService");
 const { generateMeetingSummary } = require("./services/aiSummaryService");
 const { initDb, getRecentMeetings, getPendingTasks, markTaskDone } = require("./services/dbService");
 
+// ── Sentry (error monitoring) ─────────────────────────────────────────────────
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || "production",
+    tracesSampleRate: 0.1,
+  });
+  logger.info("Sentry initialised");
+}
+
 const app = express();
+
+// Sentry request handler must be first middleware
+if (process.env.SENTRY_DSN) app.use(Sentry.Handlers.requestHandler());
+
 app.use(express.json());
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+const defaultLimiter = rateLimit({
+  windowMs: 60 * 1000,        // 1 minute window
+  max: 60,                    // max 60 requests per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, slow down." },
+});
+
+// Stricter limit on the Telegram/Teams webhook endpoints
+const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,                   // Telegram can burst; Teams is low-volume
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use("/webhook", webhookLimiter);
+app.use(defaultLimiter);
+
+// ── Telegram webhook secret verification ─────────────────────────────────────
+function verifyTelegramSecret(req, res, next) {
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (!secret) return next(); // skip if not configured yet
+  const headerToken = req.headers["x-telegram-bot-api-secret-token"];
+  if (!headerToken || headerToken !== secret) {
+    logger.warn("Rejected Telegram webhook: invalid secret token");
+    return res.sendStatus(403);
+  }
+  next();
+}
+
+// ── Teams webhook HMAC verification ──────────────────────────────────────────
+function verifyTeamsWebhook(req, res, next) {
+  const secret = process.env.TEAMS_WEBHOOK_SECRET;
+  if (!secret) return next(); // skip if not configured
+  const authHeader = req.headers["authorization"] || "";
+  const buf = Buffer.from(JSON.stringify(req.body));
+  const hmac = crypto.createHmac("sha256", Buffer.from(secret, "base64")).update(buf).digest("base64");
+  const expected = `HMAC ${hmac}`;
+  if (authHeader !== expected) {
+    logger.warn("Rejected Teams webhook: invalid HMAC");
+    return res.sendStatus(403);
+  }
+  next();
+}
+
+// Request logging middleware
+app.use((req, res, next) => {
+  logger.info(`${req.method} ${req.path}`);
+  next();
+});
 
 // Test Gemini AI summary with a sample transcript
 app.get("/ai-test", async (req, res) => {
@@ -48,8 +119,8 @@ app.get("/meetings", async (req, res) => {
     const meetings = await getMeetings();
     res.json(meetings);
   } catch (err) {
-    console.error(err);
-    res.send("Error fetching meetings");
+    logger.error("Error fetching meetings:", err);
+    res.status(500).send("Error fetching meetings");
   }
 });
 
@@ -85,7 +156,7 @@ app.get("/force-check", async (req, res) => {
     }
     res.json({ ok: true, sent: meetings.length, meetings: meetings.map((e) => e.subject) });
   } catch (err) {
-    console.error(err);
+    logger.error("force-check error:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -121,7 +192,7 @@ app.get("/test-broadcast", async (req, res) => {
     sendToGroup(message);
     res.json({ ok: true, subject: next.subject, time: timeStr, date: dateStr });
   } catch (err) {
-    console.error(err);
+    logger.error("test-broadcast error:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -146,16 +217,16 @@ app.post("/done", async (req, res) => {
 });
 
 // Telegram webhook endpoint (used on Render instead of polling)
-app.post(`/webhook/telegram/${process.env.TELEGRAM_BOT_TOKEN}`, (req, res) => {
+app.post(`/webhook/telegram/${process.env.TELEGRAM_BOT_TOKEN}`, verifyTelegramSecret, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
 // Microsoft Teams webhook → forward meeting info to Telegram
-app.post("/webhook/teams", (req, res) => {
+app.post("/webhook/teams", verifyTeamsWebhook, (req, res) => {
   try {
     const activity = req.body;
-    console.log("Teams activity received:", activity.type);
+    logger.info(`Teams activity received: ${activity.type}`);
 
     if (activity.type === "message" && activity.text) {
       const text = activity.text.toLowerCase().trim();
@@ -177,9 +248,18 @@ app.post("/webhook/teams", (req, res) => {
 
     res.status(200).json({ status: "ok" });
   } catch (err) {
-    console.error("Teams webhook error:", err.message);
+    logger.error("Teams webhook error:", err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// Sentry error handler must be before any other error-handling middleware
+if (process.env.SENTRY_DSN) app.use(Sentry.Handlers.errorHandler());
+
+// Generic error handler
+app.use((err, req, res, _next) => {
+  logger.error("Unhandled request error:", err);
+  res.status(500).json({ error: "Internal server error" });
 });
 
 // Start server
@@ -188,7 +268,7 @@ const PORT = process.env.PORT || 3000;
 // Initialize DB tables, then start the server
 initDb().then(() => {
   const server = app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    logger.info(`Server running on port ${PORT}`);
     startScheduler();
 
     // Register bot commands so they appear in the Telegram / menu
@@ -220,38 +300,41 @@ initDb().then(() => {
       { command: "cancel",        description: "Abort active wizard" },
       { command: "help",          description: "Show all commands" },
     ])
-      .then(() => console.log("✅ Bot commands registered with Telegram"))
-      .catch((e) => console.error("❌ setMyCommands failed:", e.message));
+      .then(() => logger.info("Bot commands registered with Telegram"))
+      .catch((e) => logger.error("setMyCommands failed:", e));
 
     const appUrl = process.env.RENDER_EXTERNAL_URL;
     if (appUrl) {
-      // Set Telegram webhook so Render receives updates instead of polling
+      // Set Telegram webhook (optionally with a secret token for verification)
       const webhookUrl = `${appUrl}/webhook/telegram/${process.env.TELEGRAM_BOT_TOKEN}`;
-      bot.setWebHook(webhookUrl)
-        .then(() => console.log(`✅ Telegram webhook set: ${webhookUrl}`))
-        .catch((err) => console.error("❌ Failed to set webhook:", err.message));
+      const webhookOptions = process.env.TELEGRAM_WEBHOOK_SECRET
+        ? { secret_token: process.env.TELEGRAM_WEBHOOK_SECRET }
+        : {};
+      bot.setWebHook(webhookUrl, webhookOptions)
+        .then(() => logger.info(`Telegram webhook set: ${webhookUrl}`))
+        .catch((err) => logger.error("Failed to set webhook:", err));
 
       // Keep-alive: ping self every 14 minutes so Render free tier doesn't spin down
       const https = require("https");
       setInterval(() => {
-        https.get(appUrl, (res) => {
-          console.log(`♻️  Keep-alive ping → ${res.statusCode}`);
-        }).on("error", (e) => console.error("Keep-alive error:", e.message));
+        https.get(appUrl, (r) => {
+          logger.info(`Keep-alive ping → ${r.statusCode}`);
+        }).on("error", (e) => logger.warn(`Keep-alive error: ${e.message}`));
       }, 14 * 60 * 1000);
-      console.log(`♻️  Keep-alive enabled → ${appUrl}`);
+      logger.info(`Keep-alive enabled → ${appUrl}`);
     }
   });
 
   server.on("error", (err) => {
     if (err.code === "EADDRINUSE") {
-      console.error(`❌ Port ${PORT} busy — trying ${PORT + 1}`);
+      logger.warn(`Port ${PORT} busy — trying ${PORT + 1}`);
       app.listen(PORT + 1, () => {
-        console.log(`Server running on port ${PORT + 1}`);
+        logger.info(`Server running on port ${PORT + 1}`);
         startScheduler();
       });
     }
   });
 }).catch((err) => {
-  console.error("❌ Failed to initialise database:", err.message);
+  logger.error("Failed to initialise database:", err);
   process.exit(1);
 });
