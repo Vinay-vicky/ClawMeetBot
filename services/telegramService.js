@@ -6,6 +6,7 @@ const { getRecentMeetings, getPendingTasks, markTaskDone, getMeetingByKeyword, g
         addTeamMember, getAllMembers, removeMemberByName, getMeetingAnalytics } = require("./dbService");
 const { getScheduledMeetings, createTeamsMeeting, deleteCalendarEvent, getMeetingRecordings } = require("./calendarService");
 const { parseNaturalLanguageCommand } = require("./aiSummaryService");
+const { convertPdf, cleanup } = require("./pdfLLMService");
 const { enqueue } = require("../utils/messageQueue");
 
 if (!process.env.TELEGRAM_BOT_TOKEN) {
@@ -1471,6 +1472,49 @@ function handleAddTaskWizard(msg, session, text) {
 }
 
 // Message handler: route to active wizard, otherwise log
+// ── PDF → RAG docs handler ───────────────────────────────────────────────────
+bot.on("message", async (msg) => {
+  if (msg.document && msg.document.mime_type === "application/pdf") {
+    const chatId = msg.chat.id;
+    const fileName = msg.document.file_name || "document.pdf";
+    bot.sendMessage(chatId, `📄 <b>Processing <code>${fileName}</code>…</b>\nExtracting text and generating RAG-ready docs. This may take a moment.`, { parse_mode: "HTML" });
+    try {
+      const fileLink = await bot.getFileLink(msg.document.file_id);
+      const https = require("https");
+      const http  = require("http");
+      const fileBuffer = await new Promise((resolve, reject) => {
+        const chunks = [];
+        const lib = fileLink.startsWith("https") ? https : http;
+        lib.get(fileLink, (res) => {
+          res.on("data", (c) => chunks.push(c));
+          res.on("end",  () => resolve(Buffer.concat(chunks)));
+          res.on("error", reject);
+        }).on("error", reject);
+      });
+      const { zipPath, meta } = await convertPdf(fileBuffer, fileName);
+      await bot.sendDocument(chatId, zipPath, {
+        caption: [
+          `✅ <b>RAG Docs ready</b> — <code>${fileName}</code>`,
+          `📑 ${meta.pages} page${meta.pages !== 1 ? "s" : ""}  |  🧩 ${meta.chunks} chunks  |  📝 ${meta.chars.toLocaleString()} chars`,
+          "",
+          "<b>Inside the ZIP:</b>",
+          "• <code>llms-full.txt</code> — complete text",
+          "• <code>llms-medium.txt</code> — first 4 000 chars",
+          "• <code>llms-small.txt</code> — first 1 000 chars",
+          "• <code>chunks/</code> — 800-char overlapping chunks for vector ingestion",
+          "• <code>metadata.json</code> + <code>README.md</code>",
+        ].join("\n"),
+        parse_mode: "HTML",
+      });
+      cleanup(zipPath);
+    } catch (err) {
+      logger.error("PDF LLM conversion error:", err);
+      bot.sendMessage(chatId, `❌ Could not process PDF: ${err.message}`);
+    }
+    return;
+  }
+});
+
 bot.on("message", async (msg) => {
   const text = (msg.text || "").trim();
   if (!text || text.startsWith("/")) return;
