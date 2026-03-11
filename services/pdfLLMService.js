@@ -1,8 +1,7 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
-const _pdfImport = require("pdf-parse");
-const pdf = typeof _pdfImport === "function" ? _pdfImport : _pdfImport.default;
+const { PDFParse } = require("pdf-parse");
 const archiver = require("archiver");
 const { v4: uuidv4 } = require("uuid");
 const logger = require("../utils/logger");
@@ -37,8 +36,10 @@ function makeChunks(text, size = CHUNK_SIZE, overlap = OVERLAP) {
 
 /** Write all files for one PDF and return path to the zip */
 async function convertPdf(fileBuffer, originalName) {
-  const data = await pdf(fileBuffer);
-  const text = cleanText(data.text);
+  const parser = new PDFParse({ data: fileBuffer });
+  const parsed = await parser.getText();
+  const numpages = (parsed.pages && parsed.pages.length) || 0;
+  const text = cleanText(parsed.text);
 
   if (!text || text.length < 10) {
     throw new Error("PDF appears to be empty or image-only (no extractable text).");
@@ -63,7 +64,7 @@ async function convertPdf(fileBuffer, originalName) {
   // ── 3. Metadata ───────────────────────────────────────────────────────────
   const meta = {
     source: originalName || "document.pdf",
-    pages: data.numpages,
+    pages: numpages,
     chars: text.length,
     chunks: 0,         // filled below
     chunk_size: CHUNK_SIZE,
