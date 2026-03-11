@@ -123,7 +123,7 @@ async function convertPdf(fileBuffer, originalName) {
   // Cleanup temp folder
   fs.rmSync(folderPath, { recursive: true, force: true });
 
-  logger.info(`pdfLLMService: created ${zipPath} (${chunks.length} chunks, ${data.numpages} pages)`);
+  logger.info(`pdfLLMService: created ${zipPath} (${chunks.length} chunks, ${meta.pages} pages)`);
   return { zipPath, meta };
 }
 
