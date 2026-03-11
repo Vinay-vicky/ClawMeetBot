@@ -1,7 +1,8 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
-const pdf = require("pdf-parse");
+const _pdfImport = require("pdf-parse");
+const pdf = typeof _pdfImport === "function" ? _pdfImport : _pdfImport.default;
 const archiver = require("archiver");
 const { v4: uuidv4 } = require("uuid");
 const logger = require("../utils/logger");

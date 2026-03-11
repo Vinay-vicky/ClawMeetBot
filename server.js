@@ -22,6 +22,7 @@ if (process.env.SENTRY_DSN) {
 }
 
 const app = express();
+app.set("trust proxy", 1); // Render / other reverse proxies forward X-Forwarded-For
 
 // Sentry request handler must be first middleware
 if (process.env.SENTRY_DSN) app.use(Sentry.Handlers.requestHandler());
