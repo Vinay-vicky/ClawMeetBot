@@ -10,6 +10,7 @@ const { getRecentMeetings, getPendingTasks, markTaskDone, getMeetingByKeyword, g
 const { getScheduledMeetings, createTeamsMeeting, deleteCalendarEvent, getMeetingRecordings } = require("./calendarService");
 const { parseNaturalLanguageCommand } = require("./aiSummaryService");
 const { convertPdf, cleanup } = require("./pdfLLMService");
+const { indexText, askKnowledge } = require("./ragService");
 const { enqueue } = require("../utils/messageQueue");
 
 if (!process.env.TELEGRAM_BOT_TOKEN) {
@@ -1222,6 +1223,8 @@ bot.onText(/\/notes(?:\s+([\s\S]+))?/, async (msg, match) => {
       return bot.sendMessage(msg.chat.id, `📭 No meeting found matching "<b>${keyword}</b>".`, { parse_mode: "HTML" });
     }
     await addMeetingNote(meetings[0].id, meetings[0].subject, noteText);
+    // Auto-index into RAG (non-blocking)
+    indexText(noteText, "meeting_note", meetings[0].id, meetings[0].subject).catch(() => {});
     bot.sendMessage(msg.chat.id,
       `✅ Note saved for <b>${meetings[0].subject}</b>:\n\n<i>"${noteText}"</i>`,
       { parse_mode: "HTML" });
@@ -1602,6 +1605,9 @@ bot.onText(/\/teamtask(?:\s+(.+))?/, async (msg, match) => {
     return bot.sendMessage(chatId, "❌ Task text is required.");
   }
   await saveTeamTask(person, task, deadline);
+  // Auto-index into RAG knowledge base (non-blocking)
+  const chunkText = `Team task — ${person}: ${task}${deadline ? ` (due ${deadline})` : ""}`;
+  indexText(chunkText, "team_task", `manual_${Date.now()}`, `Team Task`).catch(() => {});
   bot.sendMessage(chatId,
     `👥 <b>Team task saved</b>\n\n👤 Assigned to: <b>${person}</b>\n📋 ${task}${deadline ? `\n📅 Due: <b>${deadline}</b>` : ""}\n\n<i>Visible to the whole team. Use /tasks to view.</i>`,
     { parse_mode: "HTML" });
@@ -1726,6 +1732,8 @@ bot.onText(/\/note(?:\s+(.+))?/, async (msg, match) => {
       { parse_mode: "HTML" });
   }
   await addPersonalNote(telegramId, input);
+  // Auto-index into RAG knowledge base (non-blocking)
+  indexText(input, "personal_note", String(telegramId), `User ${telegramId} note`).catch(() => {});
   bot.sendMessage(chatId,
     `🗒 <b>Note saved</b> 🔒\n\n"${input}"\n\n<i>Only you can see this. Use /mynotes to view all.</i>`,
     { parse_mode: "HTML" });
@@ -1764,6 +1772,75 @@ bot.onText(/\/mydelnote\s+#?(\d+)/, async (msg, match) => {
     bot.sendMessage(chatId, `🗑 Note <b>#${id}</b> deleted.`, { parse_mode: "HTML" });
   } else {
     bot.sendMessage(chatId, `❌ Note #${id} not found or doesn't belong to you.`);
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RAG KNOWLEDGE WORKSPACE
+// ══════════════════════════════════════════════════════════════════════════════
+
+// /ask <question> — query the knowledge base with RAG
+bot.onText(/\/ask(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const question = match && match[1] ? match[1].trim() : null;
+  if (!question) {
+    return bot.sendMessage(chatId,
+      "🔍 <b>Ask the Knowledge Base</b>\n\n" +
+      "<code>/ask What was decided about the Q4 budget?</code>\n" +
+      "<code>/ask Who is handling the product demo?</code>\n" +
+      "<code>/ask What does the contract say about payments?</code>\n\n" +
+      "<i>Searches across all meeting notes, transcripts, personal notes, team tasks, and uploaded PDFs.</i>\n\n" +
+      "💡 For semantic search, set <code>HF_TOKEN</code> in settings. Currently using keyword search.",
+      { parse_mode: "HTML" });
+  }
+
+  // Show typing indicator
+  bot.sendChatAction(chatId, "typing");
+
+  try {
+    const { answer, sources, semantic } = await askKnowledge(question);
+
+    const sourceList = sources.length
+      ? `\n\n📎 <b>Sources:</b>\n${sources.map((s) => `• ${s}`).join("\n")}`
+      : "";
+    const mode = semantic ? "🧠 <i>Semantic search</i>" : "🔤 <i>Keyword search</i>";
+
+    bot.sendMessage(chatId,
+      `🔍 <b>Knowledge Base Answer</b>\n${mode}\n\n${answer}${sourceList}`,
+      { parse_mode: "HTML" });
+  } catch (err) {
+    logger.error("/ask error:", err);
+    bot.sendMessage(chatId, "❌ Could not query the knowledge base.");
+  }
+});
+
+// /askstats — show knowledge base statistics
+bot.onText(/\/askstats/, async (msg) => {
+  const chatId = msg.chat.id;
+  try {
+    const { getAllChunks } = require("./dbService");
+    const chunks = await getAllChunks();
+    if (chunks.length === 0) {
+      return bot.sendMessage(chatId,
+        "📚 <b>Knowledge Base</b>\n\nEmpty — no content indexed yet.\n\nContent is auto-indexed when you save notes, tasks, and transcripts.",
+        { parse_mode: "HTML" });
+    }
+    const byType = {};
+    for (const c of chunks) {
+      byType[c.source_type] = (byType[c.source_type] || 0) + 1;
+    }
+    const breakdown = Object.entries(byType)
+      .map(([type, count]) => `• ${type}: <b>${count}</b> chunks`)
+      .join("\n");
+    const hasEmbeddings = chunks.some((c) => c.embedding);
+    bot.sendMessage(chatId,
+      `📚 <b>Knowledge Base Stats</b>\n\nTotal chunks: <b>${chunks.length}</b>\n${breakdown}\n\n` +
+      `Search mode: ${hasEmbeddings ? "🧠 Semantic (HF embeddings)" : "🔤 Keyword fallback"}\n\n` +
+      `Use <code>/ask your question</code> to query.`,
+      { parse_mode: "HTML" });
+  } catch (err) {
+    logger.error("/askstats error:", err);
+    bot.sendMessage(chatId, "❌ Could not load knowledge base stats.");
   }
 });
 

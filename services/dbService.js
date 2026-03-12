@@ -99,6 +99,16 @@ async function initDb() {
       visibility  TEXT DEFAULT 'team',
       created_at  TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS knowledge_chunks (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_type TEXT NOT NULL,
+      source_id   TEXT NOT NULL,
+      source_name TEXT,
+      chunk_text  TEXT NOT NULL,
+      embedding   TEXT,
+      created_at  TEXT DEFAULT (datetime('now'))
+    );
   `);
   logger.info("Database ready" + (process.env.TURSO_DATABASE_URL ? " (Turso cloud)" : " (local SQLite)"));
 }
@@ -457,6 +467,33 @@ async function getTranscriptsByMeeting(meetingId) {
   return res.rows;
 }
 
+// ── RAG Knowledge Chunks ─────────────────────────────────────────────────────
+
+/** Save a knowledge chunk (optionally with a JSON-serialised embedding) */
+async function saveChunk(sourceType, sourceId, sourceName, chunkText, embedding) {
+  await db.execute({
+    sql: `INSERT INTO knowledge_chunks (source_type, source_id, source_name, chunk_text, embedding)
+          VALUES (?, ?, ?, ?, ?)`,
+    args: [sourceType, String(sourceId), sourceName || null, chunkText, embedding || null],
+  });
+}
+
+/** Retrieve all chunks (used for JS-side cosine similarity search) */
+async function getAllChunks() {
+  const res = await db.execute(
+    "SELECT id, source_type, source_id, source_name, chunk_text, embedding FROM knowledge_chunks ORDER BY id DESC"
+  );
+  return res.rows;
+}
+
+/** Delete all chunks for a specific source (used before re-indexing) */
+async function deleteChunksBySource(sourceType, sourceId) {
+  await db.execute({
+    sql: "DELETE FROM knowledge_chunks WHERE source_type = ? AND source_id = ?",
+    args: [sourceType, String(sourceId)],
+  });
+}
+
 // ── Team Tasks (manual, no meeting required) ──────────────────────────────────
 
 async function saveTeamTask(person, task, deadline) {
@@ -544,5 +581,7 @@ module.exports = {
   saveTranscript, getTranscriptsByMeeting,
   // Team tasks (manual)
   saveTeamTask,
+  // RAG knowledge chunks
+  saveChunk, getAllChunks, deleteChunksBySource,
 };
 

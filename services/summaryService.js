@@ -3,6 +3,7 @@ const logger = require("../utils/logger");
 const fetch = require("node-fetch");
 const { ClientSecretCredential } = require("@azure/identity");
 const { saveSummary, hasReminderBeenSent, markReminderSent, saveTask } = require("./dbService");
+const { indexText } = require("./ragService");
 const { sendToGroup, bot } = require("./telegramService");
 
 /** Get a Graph API access token */
@@ -102,6 +103,9 @@ async function processMeetingEnd(event) {
           analysis.tasks?.map((t) => `• ${t.person} → ${t.task}`).join("\n") || "",
         ].filter(Boolean).join("\n");
         await saveSummary(event.id, summaryText);
+        // Auto-index into RAG knowledge base (non-blocking)
+        indexText(summaryText, "meeting_note", event.id, subject).catch(() => {});
+        if (transcript) indexText(transcript, "transcript", event.id, subject).catch(() => {});
 
         // Save each task to DB
         if (analysis.tasks?.length) {

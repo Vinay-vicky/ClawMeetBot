@@ -313,6 +313,8 @@ initDb().then(() => {
       { command: "teamtask",      description: "Add a team-visible task" },
       { command: "teamtasks",     description: "List all pending team tasks" },
       { command: "myprofile",     description: "View your profile and dashboard link" },
+      { command: "ask",           description: "Ask the knowledge base a question (RAG)" },
+      { command: "askstats",      description: "Show knowledge base stats" },
       { command: "mytask",        description: "Add a private personal task" },
       { command: "mytasks",       description: "List your personal tasks (private)" },
       { command: "mydonetask",    description: "Mark a personal task done (/mydonetask #id)" },
