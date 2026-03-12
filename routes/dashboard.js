@@ -20,7 +20,7 @@ function authCheck(req, res, next) {
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>ClawMeet Dashboard</title>
 <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:sans-serif;background:#0f1117;color:#e1e4e8;display:flex;align-items:center;justify-content:center;min-height:100vh}.box{text-align:center;padding:40px;background:#161b22;border:1px solid #30363d;border-radius:12px;min-width:300px}h2{color:#58a6ff;margin-bottom:20px;font-size:18px}input{padding:10px 14px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e1e4e8;font-size:14px;width:220px;display:block;margin:0 auto 12px}button{padding:10px 24px;background:#238636;border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:14px}button:hover{background:#2ea043}</style></head>
-<body><div class="box"><h2>ðŸ”’ ClawMeet Dashboard</h2><form method="GET"><input name="token" type="password" placeholder="Access token" required><button type="submit">Enter</button></form></div></body></html>`);
+<body><div class="box"><h2>&#x1F512; ClawMeet Dashboard</h2><form method="GET"><input name="token" type="password" placeholder="Access token" required><button type="submit">Enter</button></form></div></body></html>`);
 }
 
 // â”€â”€ Mark task done (from dashboard) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -86,7 +86,7 @@ function esc(s) {
 }
 
 function fmtTime(t) {
-  if (!t) return "â€”";
+  if (!t) return "—";
   try {
     return new Date(t).toLocaleString("en-IN", {
       timeZone: process.env.TIMEZONE || "Asia/Kolkata",
@@ -146,50 +146,50 @@ function buildHtml({ meetings, tasks, meetStats, taskStats, analytics, todayMeet
   const todayRows = todayMeetings.map((e) => {
     const joinUrl = e.onlineMeeting?.joinUrl || e.join_url || e.webLink;
     const start = e.start?.dateTime || e.start_time;
-    const org = e.organizer?.emailAddress?.name || e.organizer || "â€”";
-    return `<tr><td>${esc(e.subject || "Meeting")}</td><td>${fmtTime(start)}</td><td>${esc(org)}</td><td>${joinUrl ? `<a href="${esc(joinUrl)}" target="_blank" class="join">â–¶ Join</a>` : "â€”"}</td></tr>`;
+    const org = e.organizer?.emailAddress?.name || e.organizer || "—";
+    return `<tr><td>${esc(e.subject || "Meeting")}</td><td>${fmtTime(start)}</td><td>${esc(org)}</td><td>${joinUrl ? `<a href="${esc(joinUrl)}" target="_blank" class="join">&#x25B6; Join</a>` : "—"}</td></tr>`;
   }).join("") || `<tr><td colspan="4" class="empty">No upcoming meetings in the next 24 hrs</td></tr>`;
 
   // Recent meetings
   const meetRows = meetings.map((m) =>
-    `<tr><td>${esc(m.subject)}</td><td>${fmtTime(m.start_time)}</td><td>${esc(m.organizer || "â€”")}</td><td>${m.summary ? '<span class="badge g">âœ“ AI</span>' : '<span class="badge gr">â€”</span>'}</td><td>${m.join_url ? `<a href="${esc(m.join_url)}" target="_blank" class="join">â–¶ Join</a>` : "â€”"}</td></tr>`
+    `<tr><td>${esc(m.subject)}</td><td>${fmtTime(m.start_time)}</td><td>${esc(m.organizer || "—")}</td><td>${m.summary ? '<span class="badge g">&#x2713; AI</span>' : '<span class="badge gr">—</span>'}</td><td>${m.join_url ? `<a href="${esc(m.join_url)}" target="_blank" class="join">&#x25B6; Join</a>` : "—"}</td></tr>`
   ).join("") || `<tr><td colspan="5" class="empty">No meetings yet</td></tr>`;
 
-  // Pending tasks â€” with deadline colouring + done button
+  // Pending tasks — with deadline colouring + done button
   const taskRows = tasks.slice(0, 30).map((t) => {
     const dlCls = deadlineClass(t.deadline);
     const dlText = t.deadline
       ? `<span class="dlbadge${dlCls}">${esc(t.deadline)}</span>`
-      : "â€”";
+      : "—";
     return `<tr>
       <td>${t.id}</td>
       <td>${esc(t.person)}</td>
       <td>${esc(t.task)}</td>
       <td>${dlText}</td>
-      <td>${esc(t.meeting_subject || "â€”")}</td>
+      <td>${esc(t.meeting_subject || "—")}</td>
       <td><form method="POST" action="/dashboard/task/${t.id}/done${tokenParam ? "?" + tokenParam.slice(1) : ""}" style="margin:0">
-        <button class="donebtn" type="submit" title="Mark complete">âœ…</button>
+        <button class="donebtn" type="submit" title="Mark complete">&#x2705;</button>
       </form></td>
     </tr>`;
-  }).join("") || `<tr><td colspan="6" class="empty">No pending tasks ðŸŽ‰</td></tr>`;
+  }).join("") || `<tr><td colspan="6" class="empty">No pending tasks &#x1F389;</td></tr>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>ClawMeet Bot â€” Dashboard</title>
+<title>ClawMeet Bot — Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e1e4e8;min-height:100vh}
-.hdr{background:#161b22;border-bottom:1px solid #30363d;padding:16px 28px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.hdr{background:#161b22;border-bottom:1px solid #30363d;padding:16px 28px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .hdr h1{font-size:18px;font-weight:700;color:#58a6ff}
 .hdr .sub{font-size:11px;color:#8b949e;margin-top:3px}
-.hdr-right{display:flex;align-items:center;gap:10px}
-.refresh{background:#21262d;border:1px solid #30363d;color:#58a6ff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;cursor:pointer}
+.hdr-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.refresh{background:#21262d;border:1px solid #30363d;color:#58a6ff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;cursor:pointer;white-space:nowrap}
 .refresh:hover{background:#30363d}
-.countdown{font-size:11px;color:#8b949e}
+.countdown{font-size:11px;color:#8b949e;white-space:nowrap}
 .main{padding:20px 28px;max-width:1440px;margin:0 auto}
 /* Stat cards */
 .srow{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px}
@@ -200,7 +200,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* Grid layouts */
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:20px}
 .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-bottom:20px}
-@media(max-width:900px){.g2,.g3{grid-template-columns:1fr}}
+@media(max-width:900px){.g2,.g3{grid-template-columns:1fr}.span2{grid-column:span 1 !important}}
+@media(max-width:600px){.main{padding:12px 10px}.hdr{padding:12px 14px}.sc .val{font-size:20px}.srow{grid-template-columns:repeat(2,1fr)}}
 .card,.fc{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px}
 .fc{margin-bottom:18px}
 .card h2,.fc h2{font-size:12px;font-weight:600;color:#8b949e;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #21262d;text-transform:uppercase;letter-spacing:.5px}
@@ -208,6 +209,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .chart-wrap{position:relative;height:180px}
 .chart-sm{position:relative;height:160px;display:flex;align-items:center;justify-content:center}
 /* Tables */
+.table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 table{width:100%;border-collapse:collapse;font-size:12px}
 th{text-align:left;color:#8b949e;font-weight:500;padding:6px 8px;border-bottom:1px solid #21262d}
 td{padding:6px 8px;border-bottom:1px solid #0d1117;color:#c9d1d9;vertical-align:middle}
@@ -238,10 +240,12 @@ tr:hover td{background:#1c2128}
 </head>
 <body>
 <div class="hdr">
-  <div><h1>ðŸ¤– ClawMeet Bot Dashboard</h1><div class="sub"><span class="live-dot"></span>Updated: <span id="ts">${esc(now)}</span></div></div>
+  <div><h1>&#x1F916; ClawMeet Bot Dashboard</h1><div class="sub"><span class="live-dot"></span>Updated: <span id="ts">${esc(now)}</span></div></div>
   <div class="hdr-right">
+    <a href="/dashboard/public" class="refresh">&#x1F465; Team View</a>
+    <a href="/dashboard/me" class="refresh">&#x1F464; My Dashboard</a>
     <span class="countdown" id="cd">Auto-refresh in <b id="cds">60</b>s</span>
-    <a href="${esc(baseUrl)}" class="refresh" id="rfbtn">â†» Refresh</a>
+    <a href="${esc(baseUrl)}" class="refresh" id="rfbtn">&#x21BB; Refresh</a>
   </div>
 </div>
 <div class="main">
@@ -258,19 +262,19 @@ tr:hover td{background:#1c2128}
 
 <!-- Upcoming meetings -->
 <div class="fc">
-  <h2>ðŸ“… Upcoming Meetings (next 24 hrs)</h2>
-  <table><thead><tr><th>Meeting</th><th>Start</th><th>Organizer</th><th>Link</th></tr></thead>
-  <tbody>${todayRows}</tbody></table>
+  <h2>&#x1F4C5; Upcoming Meetings (next 24 hrs)</h2>
+  <div class="table-scroll"><table><thead><tr><th>Meeting</th><th>Start</th><th>Organizer</th><th>Link</th></tr></thead>
+  <tbody>${todayRows}</tbody></table></div>
 </div>
 
 <!-- Charts row -->
 <div class="g3">
-  <div class="card" style="grid-column:span 2">
-    <h2>ðŸ“Š Meetings Per Week</h2>
+  <div class="card span2" style="grid-column:span 2">
+    <h2>&#x1F4CA; Meetings Per Week</h2>
     <div class="chart-wrap"><canvas id="weekChart"></canvas></div>
   </div>
   <div class="card">
-    <h2>âœ… Task Completion</h2>
+    <h2>&#x2705; Task Completion</h2>
     <div class="chart-sm"><canvas id="donutChart"></canvas></div>
     <p style="text-align:center;font-size:11px;color:#8b949e;margin-top:6px">${done} done / ${total} total</p>
   </div>
@@ -279,7 +283,7 @@ tr:hover td{background:#1c2128}
 <!-- Productivity + assignees + busiest days -->
 <div class="g3">
   <div class="card">
-    <h2>ðŸ† Productivity Score</h2>
+    <h2>&#x1F3C6; Productivity Score</h2>
     <div style="margin-top:10px">
       <div class="ps-ring">
         <div><div class="ring-num">${productivityScore}</div><div style="font-size:10px;color:#8b949e">out of 100</div></div>
@@ -293,39 +297,39 @@ tr:hover td{background:#1c2128}
     </div>
   </div>
   <div class="card">
-    <h2>ðŸ‘¤ Top Assignees</h2>
+    <h2>&#x1F464; Top Assignees</h2>
     <div class="chart-wrap"><canvas id="assigneeChart"></canvas></div>
   </div>
   <div class="card">
-    <h2>ðŸ“† Busiest Meeting Days</h2>
+    <h2>&#x1F4C6; Busiest Meeting Days</h2>
     <div class="chart-wrap"><canvas id="dayChart"></canvas></div>
   </div>
 </div>
 
 <!-- Tasks -->
 <div class="fc">
-  <h2>âœ… Pending Tasks <span style="color:#484f58;font-weight:400">(top 30 â€” click âœ… to complete)</span></h2>
-  <table><thead><tr><th>#</th><th>Person</th><th>Task</th><th>Deadline</th><th>Meeting</th><th></th></tr></thead>
-  <tbody id="task-tbody">${taskRows}</tbody></table>
+  <h2>&#x2705; Pending Tasks <span style="color:#484f58;font-weight:400">(top 30 &mdash; click &#x2705; to complete)</span></h2>
+  <div class="table-scroll"><table><thead><tr><th>#</th><th>Person</th><th>Task</th><th>Deadline</th><th>Meeting</th><th></th></tr></thead>
+  <tbody id="task-tbody">${taskRows}</tbody></table></div>
 </div>
 
 <!-- Recent meetings -->
 <div class="fc">
-  <h2>ðŸ•‘ Recent Meetings</h2>
-  <table><thead><tr><th>Subject</th><th>Start</th><th>Organizer</th><th>Summary</th><th>Link</th></tr></thead>
-  <tbody>${meetRows}</tbody></table>
+  <h2>&#x1F552; Recent Meetings</h2>
+  <div class="table-scroll"><table><thead><tr><th>Subject</th><th>Start</th><th>Organizer</th><th>Summary</th><th>Link</th></tr></thead>
+  <tbody>${meetRows}</tbody></table></div>
 </div>
 
 <!-- â•â•â• PERSONAL WORKSPACE â•â•â• -->
 <div class="fc" style="border-color:#6e40c9;margin-top:24px">
-  <h2 style="color:#a371f7">ðŸ”’ Personal Workspace <span style="font-weight:400;color:#484f58;text-transform:none;letter-spacing:0">(private â€” only visible to each user via Telegram)</span></h2>
+  <h2 style="color:#a371f7">&#x1F512; Personal Workspace <span style="font-weight:400;color:#484f58;text-transform:none;letter-spacing:0">(private — only visible to each user via Telegram)</span></h2>
   <div class="srow" style="margin-bottom:12px">
     <div class="sc"><div class="val" style="color:#a371f7">${personalSummary.totalPersonalTasks ?? 0}</div><div class="lbl">Personal Tasks</div></div>
     <div class="sc"><div class="val" style="color:#a371f7">${personalSummary.totalPersonalNotes ?? 0}</div><div class="lbl">Personal Notes</div></div>
     <div class="sc"><div class="val" style="color:#a371f7">${personalSummary.usersWithTasks ?? 0}</div><div class="lbl">Active Users</div></div>
   </div>
   <p style="font-size:11px;color:#484f58;line-height:1.6">
-    Personal tasks and notes are private per Telegram user â€” not shown here in detail.<br>
+    Personal tasks and notes are private per Telegram user — not shown here in detail.<br>
     Each user can manage their own workspace via:
     <code>/mytasks</code> &nbsp; <code>/mytask</code> &nbsp; <code>/mynotes</code> &nbsp; <code>/note</code> &nbsp; <code>/myprofile</code>
   </p>
@@ -411,7 +415,7 @@ new Chart(document.getElementById('donutChart'), {
 new Chart(document.getElementById('radarChart'), {
   type: 'radar',
   data: {
-    labels: ['Tasks âœ…', 'AI Coverage ðŸ¤–', 'Activity ðŸ“…'],
+    labels: ['Tasks &#x2705;', 'AI Coverage &#x1F916;', 'Activity &#x1F4C5;'],
     datasets: [{
       data: ${radarData},
       backgroundColor: 'rgba(88,166,255,0.15)',
