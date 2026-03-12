@@ -80,6 +80,23 @@ router.get("/", authCheck, async (req, res) => {
   }
 });
 
+// ── Analytics page ────────────────────────────────────────────────────────────
+router.get("/analytics", authCheck, async (req, res) => {
+  try {
+    const [meetings, meetStats, taskStats, analytics] = await Promise.all([
+      getRecentMeetings(20), getMeetingStats(), getTaskStats(), getMeetingAnalytics(),
+    ]);
+    const summaryCount  = meetings.filter((m) => m.summary).length;
+    const aiCoverage    = meetings.length > 0 ? summaryCount / meetings.length : 0;
+    const activityScore = Math.min(1, (meetStats.thisWeek ?? 0) / 5);
+    const productivityScore = Math.round(((analytics.completionRate ?? 0) / 100) * 40 + aiCoverage * 30 + activityScore * 30);
+    res.send(buildAnalyticsHtml({ meetStats, taskStats, analytics, productivityScore, aiCoverage, activityScore }));
+  } catch (err) {
+    logger.error("Analytics page error:", err);
+    res.status(500).send(`<h1 style="color:red;font-family:sans-serif">Analytics Error</h1><pre>${err.message}</pre>`);
+  }
+});
+
 // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function esc(s) {
   return String(s ?? "")
@@ -181,7 +198,6 @@ function buildHtml({ meetings, tasks, meetStats, taskStats, analytics, todayMeet
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>ClawMeet Bot — Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e1e4e8;min-height:100vh}
@@ -244,6 +260,7 @@ tr:hover td{background:#1c2128}
 <div class="hdr">
   <div><h1>&#x1F916; ClawMeet Bot Dashboard</h1><div class="sub"><span class="live-dot"></span>Updated: <span id="ts">${esc(now)}</span></div></div>
   <div class="hdr-right">
+    <a href="/dashboard/analytics" class="refresh">&#x1F4CA; Analytics</a>
     <a href="/dashboard/public" class="refresh">&#x1F465; Team View</a>
     <a href="/dashboard/me" class="refresh">&#x1F464; My Dashboard</a>
     <span class="countdown" id="cd">Auto-refresh in <b id="cds">60</b>s</span>
@@ -269,43 +286,12 @@ tr:hover td{background:#1c2128}
   <tbody>${todayRows}</tbody></table></div>
 </div>
 
-<!-- Charts row -->
-<div class="g3">
-  <div class="card span2" style="grid-column:span 2">
-    <h2>&#x1F4CA; Meetings Per Week</h2>
-    <div class="chart-wrap"><canvas id="weekChart"></canvas></div>
-  </div>
-  <div class="card">
-    <h2>&#x2705; Task Completion</h2>
-    <div class="chart-sm"><canvas id="donutChart"></canvas></div>
-    <p style="text-align:center;font-size:11px;color:#8b949e;margin-top:6px">${done} done / ${total} total</p>
-  </div>
-</div>
-
-<!-- Productivity + assignees + busiest days -->
-<div class="g3">
-  <div class="card">
-    <h2>&#x1F3C6; Productivity Score</h2>
-    <div style="margin-top:10px">
-      <div class="ps-ring">
-        <div><div class="ring-num">${productivityScore}</div><div style="font-size:10px;color:#8b949e">out of 100</div></div>
-        <div class="ring-desc">
-          Tasks completed: <b>${rate}%</b><br>
-          AI coverage: <b>${Math.round(aiCoverage * 100)}%</b><br>
-          Meeting activity: <b>${Math.round(activityScore * 100)}%</b>
-        </div>
-      </div>
-      <div class="chart-sm" style="height:120px"><canvas id="radarChart"></canvas></div>
-    </div>
-  </div>
-  <div class="card">
-    <h2>&#x1F464; Top Assignees</h2>
-    <div class="chart-wrap"><canvas id="assigneeChart"></canvas></div>
-  </div>
-  <div class="card">
-    <h2>&#x1F4C6; Busiest Meeting Days</h2>
-    <div class="chart-wrap"><canvas id="dayChart"></canvas></div>
-  </div>
+<!-- Analytics CTA -->
+<div class="fc" style="background:linear-gradient(135deg,#161b22 0%,#1c2128 100%);border-color:#1f6feb;text-align:center;padding:28px 20px">
+  <div style="font-size:36px;margin-bottom:10px">&#x1F4CA;</div>
+  <div style="font-size:16px;font-weight:600;color:#58a6ff;margin-bottom:8px">Team Analytics</div>
+  <p style="color:#8b949e;font-size:12px;margin-bottom:18px;line-height:1.7">Meetings per week &bull; Task completion &bull; Productivity score &bull; Top assignees &bull; Busiest days<br>All charts in one focused, distraction-free view</p>
+  <a href="/dashboard/analytics" style="display:inline-block;background:#1f6feb;color:#fff;padding:10px 28px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600">&#x1F4CA; View Analytics &rarr;</a>
 </div>
 
 <!-- Tasks -->
@@ -362,136 +348,9 @@ tr:hover td{background:#1c2128}
 
 <script>
 // â”€â”€ Chart.js charts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const gridColor = 'rgba(255,255,255,0.05)';
-const labelColor = '#8b949e';
-const blue1 = '#1f6feb'; const blue2 = '#58a6ff';
-const green1 = '#238636'; const green2 = '#3fb950';
 
-// Meetings per week bar chart
-new Chart(document.getElementById('weekChart'), {
-  type: 'bar',
-  data: {
-    labels: ${weekLabels},
-    datasets: [{
-      label: 'Meetings',
-      data: ${weekCounts},
-      backgroundColor: 'rgba(88,166,255,0.25)',
-      borderColor: blue2,
-      borderWidth: 2,
-      borderRadius: 5,
-    }]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { ticks: { color: labelColor }, grid: { color: gridColor } },
-      y: { ticks: { color: labelColor, stepSize: 1 }, grid: { color: gridColor }, beginAtZero: true }
-    }
-  }
-});
 
-// Task completion doughnut
-new Chart(document.getElementById('donutChart'), {
-  type: 'doughnut',
-  data: {
-    labels: ['Done', 'Pending'],
-    datasets: [{
-      data: [${done}, ${total - done}],
-      backgroundColor: ['rgba(63,185,80,0.8)', 'rgba(33,38,45,0.9)'],
-      borderColor: ['#3fb950', '#30363d'],
-      borderWidth: 2,
-      hoverOffset: 6,
-    }]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    cutout: '68%',
-    plugins: {
-      legend: { position: 'bottom', labels: { color: labelColor, font: { size: 11 }, padding: 10 } }
-    }
-  }
-});
 
-// Productivity radar chart
-new Chart(document.getElementById('radarChart'), {
-  type: 'radar',
-  data: {
-    labels: ['Tasks &#x2705;', 'AI Coverage &#x1F916;', 'Activity &#x1F4C5;'],
-    datasets: [{
-      data: ${radarData},
-      backgroundColor: 'rgba(88,166,255,0.15)',
-      borderColor: blue2,
-      borderWidth: 2,
-      pointBackgroundColor: blue2,
-    }]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    scales: {
-      r: {
-        min: 0, max: 100,
-        ticks: { color: labelColor, stepSize: 25, backdropColor: 'transparent', font: { size: 9 } },
-        grid: { color: gridColor },
-        angleLines: { color: gridColor },
-        pointLabels: { color: labelColor, font: { size: 10 } }
-      }
-    },
-    plugins: { legend: { display: false } }
-  }
-});
-
-// Top assignees horizontal bar
-const assignees = ${JSON.stringify((analytics.topAssignees || []))};
-new Chart(document.getElementById('assigneeChart'), {
-  type: 'bar',
-  data: {
-    labels: assignees.map(a => a.person),
-    datasets: [{
-      axis: 'y',
-      label: 'Tasks',
-      data: assignees.map(a => a.count),
-      backgroundColor: 'rgba(35,134,54,0.4)',
-      borderColor: green2,
-      borderWidth: 2,
-      borderRadius: 4,
-    }]
-  },
-  options: {
-    indexAxis: 'y',
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { ticks: { color: labelColor, stepSize: 1 }, grid: { color: gridColor }, beginAtZero: true },
-      y: { ticks: { color: labelColor } , grid: { display: false } }
-    }
-  }
-});
-
-// Busiest days bar
-const days = ${JSON.stringify((analytics.busiestDays || []))};
-new Chart(document.getElementById('dayChart'), {
-  type: 'bar',
-  data: {
-    labels: days.map(d => d.day),
-    datasets: [{
-      label: 'Meetings',
-      data: days.map(d => d.count),
-      backgroundColor: 'rgba(210,153,34,0.35)',
-      borderColor: '#d29922',
-      borderWidth: 2,
-      borderRadius: 4,
-    }]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { ticks: { color: labelColor }, grid: { color: gridColor } },
-      y: { ticks: { color: labelColor, stepSize: 1 }, grid: { color: gridColor }, beginAtZero: true }
-    }
-  }
-});
 
 // â”€â”€ Auto-refresh â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let cdVal = 60;
@@ -530,7 +389,6 @@ setInterval(() => {
   }
 }, 1000);
 
-const aiCoverage = ${JSON.stringify(Math.round(aiCoverage * 100))};
 </script>
 </body></html>`;
 }
@@ -716,6 +574,224 @@ router.post("/me/note/:id/delete", requireSession, async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════════════
 // PUBLIC DASHBOARD HTML
 // ══════════════════════════════════════════════════════════════════════════════
+// ── Analytics page HTML ──────────────────────────────────────────────────────
+function buildAnalyticsHtml({ meetStats, taskStats, analytics, productivityScore, aiCoverage, activityScore }) {
+  const now = new Date().toLocaleString("en-IN", {
+    timeZone: process.env.TIMEZONE || "Asia/Kolkata",
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true,
+  });
+  const rate  = analytics.completionRate ?? 0;
+  const done  = analytics.doneTasks ?? 0;
+  const total = done + (analytics.pendingTasks ?? 0);
+  const weekLabels = JSON.stringify((analytics.weeks || []).map((w) => w.week));
+  const weekCounts = JSON.stringify((analytics.weeks || []).map((w) => w.count));
+  const radarData  = JSON.stringify([
+    Math.round((rate / 100) * 100),
+    Math.round(aiCoverage * 100),
+    Math.round(activityScore * 100),
+  ]);
+  const pColor = scoreColor(productivityScore);
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Analytics &#x2014; ClawMeet Bot</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"><\/script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e1e4e8;min-height:100vh}
+.hdr{background:#161b22;border-bottom:1px solid #30363d;padding:16px 28px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.hdr h1{font-size:18px;font-weight:700;color:#58a6ff}
+.hdr .sub{font-size:11px;color:#8b949e;margin-top:3px}
+.hdr-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.btn{background:#21262d;border:1px solid #30363d;color:#58a6ff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;white-space:nowrap}
+.btn:hover{background:#30363d}
+.main{padding:26px 28px;max-width:1200px;margin:0 auto}
+.page-title{font-size:22px;font-weight:700;color:#c9d1d9;margin-bottom:4px}
+.page-sub{font-size:12px;color:#8b949e;margin-bottom:26px}
+.srow{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:28px}
+.sc{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px 16px}
+.sc .val{font-size:26px;font-weight:700;color:#58a6ff}
+.sc .lbl{font-size:10px;color:#8b949e;margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:24px;margin-bottom:24px}
+.card h2{font-size:13px;font-weight:600;color:#8b949e;margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #21262d;text-transform:uppercase;letter-spacing:.5px}
+.chart-full{position:relative;height:300px}
+.chart-half{position:relative;height:260px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px}
+@media(max-width:768px){.g2{grid-template-columns:1fr}}
+@media(max-width:600px){.main{padding:14px 12px}.hdr{padding:12px 14px}}
+.ps-ring{display:flex;align-items:center;gap:18px;margin-bottom:18px}
+.ring-num{font-size:52px;font-weight:700;color:${pColor};line-height:1}
+.ring-label{font-size:11px;color:#8b949e;margin-top:4px}
+.ring-desc{font-size:12px;color:#8b949e;line-height:1.9}
+.ring-desc b{color:#c9d1d9}
+.ftr{text-align:center;padding:16px;color:#484f58;font-size:11px;border-top:1px solid #21262d;margin-top:8px}
+.live-dot{display:inline-block;width:7px;height:7px;background:#3fb950;border-radius:50%;margin-right:4px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <div>
+    <h1>&#x1F4CA; Team Analytics</h1>
+    <div class="sub"><span class="live-dot"></span>Updated: ${esc(now)}</div>
+  </div>
+  <div class="hdr-right">
+    <a href="/dashboard/" class="btn">&#x1F3E0; Team Dashboard</a>
+    <a href="/dashboard/public" class="btn">&#x1F465; Team View</a>
+    <a href="/dashboard/me" class="btn">&#x1F464; My Dashboard</a>
+  </div>
+</div>
+<div class="main">
+<div class="page-title">&#x1F4CA; Analytics Overview</div>
+<div class="page-sub">All meeting and productivity metrics — each chart in its own focused space</div>
+
+<div class="srow">
+  <div class="sc"><div class="val">${meetStats.total ?? 0}</div><div class="lbl">Total Meetings</div></div>
+  <div class="sc"><div class="val">${meetStats.thisWeek ?? 0}</div><div class="lbl">This Week</div></div>
+  <div class="sc"><div class="val">${taskStats.pending ?? 0}</div><div class="lbl">Pending Tasks</div></div>
+  <div class="sc"><div class="val">${taskStats.doneThisMonth ?? 0}</div><div class="lbl">Done (30 days)</div></div>
+  <div class="sc"><div class="val">${rate}%</div><div class="lbl">Completion Rate</div></div>
+  <div class="sc"><div class="val" style="color:${pColor}">${productivityScore}</div><div class="lbl">Productivity Score</div></div>
+</div>
+
+<!-- 1. Meetings Per Week -->
+<div class="card">
+  <h2>&#x1F4CA; Meetings Per Week</h2>
+  <div class="chart-full"><canvas id="weekChart"></canvas></div>
+</div>
+
+<!-- 2 & 3. Task Completion + Productivity Score -->
+<div class="g2">
+  <div class="card">
+    <h2>&#x2705; Task Completion</h2>
+    <div class="chart-half"><canvas id="donutChart"></canvas></div>
+    <p style="text-align:center;font-size:12px;color:#8b949e;margin-top:12px">${done} completed &nbsp;/&nbsp; ${total} total tasks</p>
+  </div>
+  <div class="card">
+    <h2>&#x1F3C6; Productivity Score</h2>
+    <div class="ps-ring">
+      <div>
+        <div class="ring-num">${productivityScore}</div>
+        <div class="ring-label">out of 100</div>
+      </div>
+      <div class="ring-desc">
+        Task completion:&nbsp;<b>${rate}%</b><br>
+        AI meeting coverage:&nbsp;<b>${Math.round(aiCoverage * 100)}%</b><br>
+        Meeting activity:&nbsp;<b>${Math.round(activityScore * 100)}%</b>
+      </div>
+    </div>
+    <div class="chart-half" style="height:190px"><canvas id="radarChart"></canvas></div>
+  </div>
+</div>
+
+<!-- 4 & 5. Top Assignees + Busiest Days -->
+<div class="g2">
+  <div class="card">
+    <h2>&#x1F464; Top Assignees</h2>
+    <div class="chart-half"><canvas id="assigneeChart"></canvas></div>
+  </div>
+  <div class="card">
+    <h2>&#x1F4C6; Busiest Meeting Days</h2>
+    <div class="chart-half"><canvas id="dayChart"></canvas></div>
+  </div>
+</div>
+
+</div>
+<div class="ftr">ClawMeet Bot &bull; Analytics &bull; <a href="/dashboard/" style="color:#58a6ff;text-decoration:none">&#x2190; Back to Dashboard</a></div>
+
+<script>
+const gridColor = 'rgba(255,255,255,0.05)';
+const labelColor = '#8b949e';
+const blue2 = '#58a6ff';
+const green2 = '#3fb950';
+
+new Chart(document.getElementById('weekChart'), {
+  type: 'bar',
+  data: {
+    labels: ${weekLabels},
+    datasets: [{ label: 'Meetings', data: ${weekCounts}, backgroundColor: 'rgba(88,166,255,0.25)', borderColor: blue2, borderWidth: 2, borderRadius: 6 }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: labelColor }, grid: { color: gridColor } },
+      y: { ticks: { color: labelColor, stepSize: 1 }, grid: { color: gridColor }, beginAtZero: true }
+    }
+  }
+});
+
+new Chart(document.getElementById('donutChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Done', 'Pending'],
+    datasets: [{ data: [${done}, ${total - done}], backgroundColor: ['rgba(63,185,80,0.8)','rgba(33,38,45,0.9)'], borderColor: ['#3fb950','#30363d'], borderWidth: 2, hoverOffset: 6 }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    cutout: '68%',
+    plugins: { legend: { position: 'bottom', labels: { color: labelColor, font: { size: 11 }, padding: 10 } } }
+  }
+});
+
+new Chart(document.getElementById('radarChart'), {
+  type: 'radar',
+  data: {
+    labels: ['Tasks &#x2705;', 'AI Coverage &#x1F916;', 'Activity &#x1F4C5;'],
+    datasets: [{ data: ${radarData}, backgroundColor: 'rgba(88,166,255,0.15)', borderColor: blue2, borderWidth: 2, pointBackgroundColor: blue2 }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    scales: {
+      r: {
+        min: 0, max: 100,
+        ticks: { color: labelColor, stepSize: 25, backdropColor: 'transparent', font: { size: 9 } },
+        grid: { color: gridColor }, angleLines: { color: gridColor },
+        pointLabels: { color: labelColor, font: { size: 10 } }
+      }
+    },
+    plugins: { legend: { display: false } }
+  }
+});
+
+const assignees = ${JSON.stringify((analytics.topAssignees || []))};
+new Chart(document.getElementById('assigneeChart'), {
+  type: 'bar',
+  data: {
+    labels: assignees.map(a => a.person),
+    datasets: [{ axis: 'y', label: 'Tasks', data: assignees.map(a => a.count), backgroundColor: 'rgba(35,134,54,0.4)', borderColor: green2, borderWidth: 2, borderRadius: 4 }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: labelColor, stepSize: 1 }, grid: { color: gridColor }, beginAtZero: true },
+      y: { ticks: { color: labelColor }, grid: { display: false } }
+    }
+  }
+});
+
+const days = ${JSON.stringify((analytics.busiestDays || []))};
+new Chart(document.getElementById('dayChart'), {
+  type: 'bar',
+  data: {
+    labels: days.map(d => d.day),
+    datasets: [{ label: 'Meetings', data: days.map(d => d.count), backgroundColor: 'rgba(210,153,34,0.35)', borderColor: '#d29922', borderWidth: 2, borderRadius: 4 }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: labelColor }, grid: { color: gridColor } },
+      y: { ticks: { color: labelColor, stepSize: 1 }, grid: { color: gridColor }, beginAtZero: true }
+    }
+  }
+});
+<\/script>
+</body></html>`;
+}
 
 function buildPublicHtml({ meetStats, taskStats, analytics, meetings }) {
   const now = new Date().toLocaleString("en-IN", {
