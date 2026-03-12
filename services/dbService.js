@@ -563,6 +563,7 @@ async function deletePersonalNote(id, telegramId) {
 }
 
 module.exports = {
+  initDb,
   saveMeeting, hasReminderBeenSent, markReminderSent, saveSummary,
   getRecentMeetings, saveTask, getPendingTasks, markTaskDone,
   getMeetingByKeyword, getTasksByPerson,
