@@ -11,8 +11,9 @@
  */
 
 const https   = require("https");
+const crypto  = require("crypto");
 const logger  = require("../utils/logger");
-const { saveChunk, getAllChunks, deleteChunksBySource } = require("./dbService");
+const { saveChunk, getAllChunks, deleteChunksBySource, getCachedEmbedding, saveCachedEmbedding } = require("./dbService");
 const { callAI } = require("./aiSummaryService");
 
 // ── Chunking ──────────────────────────────────────────────────────────────────
@@ -32,18 +33,38 @@ function splitIntoChunks(text, chunkSize = 500, overlap = 50) {
   return chunks.filter((c) => c.length > 30);
 }
 
-// ── Embeddings ────────────────────────────────────────────────────────────────
+// ── Embeddings (with cache) ───────────────────────────────────────────────────
 
 /**
  * Generate a 384-dim embedding via HuggingFace Inference API.
+ * Results are cached in embedding_cache — identical text is never re-embedded.
  * Returns float[] or null if HF_TOKEN is not set / request fails.
  */
-function embedText(text) {
+async function embedText(text) {
   const token = process.env.HF_TOKEN;
-  if (!token) return Promise.resolve(null);
+  if (!token) return null;
 
+  const normalised = text.substring(0, 512);
+  const hash = crypto.createHash("sha256").update(normalised).digest("hex").substring(0, 16);
+
+  // Cache hit — skip the API call entirely
+  const cached = await getCachedEmbedding(hash).catch(() => null);
+  if (cached) {
+    try { return JSON.parse(cached); } catch { /* fall through to re-embed */ }
+  }
+
+  // Cache miss — call HF API then store result
+  const vector = await _fetchEmbedding(normalised, token);
+  if (vector) {
+    saveCachedEmbedding(hash, JSON.stringify(vector)).catch(() => {});
+  }
+  return vector;
+}
+
+/** Raw HF Inference API call — always use embedText() which handles caching. */
+function _fetchEmbedding(text, token) {
   return new Promise((resolve) => {
-    const payload = JSON.stringify({ inputs: text.substring(0, 512) });
+    const payload = JSON.stringify({ inputs: text });
     const options = {
       hostname: "api-inference.huggingface.co",
       path: "/models/sentence-transformers/all-MiniLM-L6-v2",
@@ -179,8 +200,12 @@ async function searchKnowledge(query, limit = 5) {
 }
 
 /**
- * Answer a natural-language question using RAG.
- * Retrieves relevant chunks → builds context → calls AI.
+ * Answer a natural-language question using RAG + context compression.
+ *
+ * Flow:
+ *   1. Retrieve top-5 relevant chunks (semantic or keyword)
+ *   2. Compress / summarise chunks into a tight context (reduces token use)
+ *   3. Send compressed context + question to AI
  *
  * @param {string} question
  * @returns {{ answer: string, sources: string[], semantic: boolean }}
@@ -193,7 +218,7 @@ async function askKnowledge(question) {
       answer:
         "No relevant information found in the knowledge base yet.\n\n" +
         "Start building it by:\n" +
-        "• Saving meeting notes (they're auto-indexed)\n" +
+        "• Saving meeting notes (they\'re auto-indexed)\n" +
         "• Adding personal notes with /note\n" +
         "• Adding team tasks with /teamtask\n" +
         "• Uploading PDFs with /pdf",
@@ -202,20 +227,35 @@ async function askKnowledge(question) {
     };
   }
 
-  const context = chunks
+  const sources = [...new Set(chunks.map((c) => `${c.source_type}: ${c.source_name}`))];
+  const semantic = !!process.env.HF_TOKEN;
+
+  // ── Context compression ────────────────────────────────────────────────────
+  // Summarise the retrieved chunks before passing to the final AI call.
+  // This removes noise, reduces token count, and improves answer quality.
+  const rawContext = chunks
     .map((c, i) => `[${i + 1}] [${c.source_type} — ${c.source_name}]\n${c.chunk_text}`)
     .join("\n\n---\n\n");
 
-  const systemPrompt =
-    "You are a helpful knowledge assistant. Answer questions based ONLY on the provided context snippets. " +
-    "Be concise. Reference snippet numbers like [1] when citing sources. " +
-    "If the context does not contain enough information, say so honestly.";
+  let context = rawContext;
+  // Only compress when chunks are large (>1500 chars total)
+  if (rawContext.length > 1500) {
+    const compressPrompt =
+      "You are a context summariser. Given these snippets retrieved for a question, " +
+      "produce a concise summary (max 400 words) keeping all facts, names, tasks, " +
+      "and dates. Do NOT answer the question — just compress the context.";
+    const compressed = await callAI(compressPrompt, `Question: ${question}\n\nSnippets:\n${rawContext}`);
+    if (compressed) context = compressed;
+  }
 
-  const userPrompt = `Context snippets:\n\n${context}\n\n---\n\nQuestion: ${question}`;
+  // ── Final answer ───────────────────────────────────────────────────────────
+  const systemPrompt =
+    "You are a helpful knowledge assistant. Answer questions based ONLY on the provided context. " +
+    "Be concise and direct. If the context lacks enough information, say so honestly.";
+
+  const userPrompt = `Context:\n\n${context}\n\n---\n\nQuestion: ${question}`;
 
   const answer = await callAI(systemPrompt, userPrompt);
-  const sources = [...new Set(chunks.map((c) => `${c.source_type}: ${c.source_name}`))];
-  const semantic = !!process.env.HF_TOKEN;
 
   return {
     answer: answer || "Could not generate an answer (AI unavailable).",

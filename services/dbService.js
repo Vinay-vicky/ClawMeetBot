@@ -109,6 +109,12 @@ async function initDb() {
       embedding   TEXT,
       created_at  TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS embedding_cache (
+      text_hash   TEXT PRIMARY KEY,
+      embedding   TEXT NOT NULL,
+      created_at  TEXT DEFAULT (datetime('now'))
+    );
   `);
   logger.info("Database ready" + (process.env.TURSO_DATABASE_URL ? " (Turso cloud)" : " (local SQLite)"));
 }
@@ -494,6 +500,25 @@ async function deleteChunksBySource(sourceType, sourceId) {
   });
 }
 
+// ── Embedding Cache ───────────────────────────────────────────────────────────────────
+
+/** Look up a pre-computed embedding by text hash */
+async function getCachedEmbedding(textHash) {
+  const res = await db.execute({
+    sql: "SELECT embedding FROM embedding_cache WHERE text_hash = ?",
+    args: [textHash],
+  });
+  return res.rows[0] ? res.rows[0].embedding : null;
+}
+
+/** Store a computed embedding so it can be reused */
+async function saveCachedEmbedding(textHash, embeddingJson) {
+  await db.execute({
+    sql: "INSERT OR REPLACE INTO embedding_cache (text_hash, embedding) VALUES (?, ?)",
+    args: [textHash, embeddingJson],
+  });
+}
+
 // ── Team Tasks (manual, no meeting required) ──────────────────────────────────
 
 async function saveTeamTask(person, task, deadline) {
@@ -584,5 +609,7 @@ module.exports = {
   saveTeamTask,
   // RAG knowledge chunks
   saveChunk, getAllChunks, deleteChunksBySource,
+  // Embedding cache
+  getCachedEmbedding, saveCachedEmbedding,
 };
 
