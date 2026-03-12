@@ -6,6 +6,8 @@ const {
   getRecentMeetings, getPendingTasks, getMeetingStats, getTaskStats, getMeetingAnalytics,
   markTaskDone, getPersonalWorkspaceSummary,
   getUserByLinkToken, getPersonalTasks, getPersonalNotes, getUserByTelegramId,
+  addPersonalTask, donePersonalTask, deletePersonalTask, updatePersonalTask,
+  addPersonalNote, deletePersonalNote, updatePersonalNote,
 } = require("../services/dbService");
 const { getScheduledMeetings } = require("../services/calendarService");
 const logger = require("../utils/logger");
@@ -654,7 +656,6 @@ router.get("/me", requireSession, async (req, res) => {
 
 // Mark personal task done from personal dashboard
 router.post("/me/task/:id/done", requireSession, async (req, res) => {
-  const { donePersonalTask } = require("../services/dbService");
   try {
     await donePersonalTask(req.params.id, req.session.tid);
     res.redirect("/dashboard/me");
@@ -662,6 +663,54 @@ router.post("/me/task/:id/done", requireSession, async (req, res) => {
     logger.error("Personal task done error:", err);
     res.redirect("/dashboard/me");
   }
+});
+
+// Add task
+router.post("/me/task/add", requireSession, express.urlencoded({ extended: false }), async (req, res) => {
+  const { task, deadline } = req.body;
+  if (task && task.trim()) {
+    await addPersonalTask(req.session.tid, task.trim(), (deadline || "").trim()).catch(() => {});
+  }
+  res.redirect("/dashboard/me");
+});
+
+// Edit task
+router.post("/me/task/:id/edit", requireSession, express.urlencoded({ extended: false }), async (req, res) => {
+  const { task, deadline } = req.body;
+  if (task && task.trim()) {
+    await updatePersonalTask(req.params.id, req.session.tid, task.trim(), (deadline || "").trim()).catch(() => {});
+  }
+  res.redirect("/dashboard/me");
+});
+
+// Delete task
+router.post("/me/task/:id/delete", requireSession, async (req, res) => {
+  await deletePersonalTask(req.params.id, req.session.tid).catch(() => {});
+  res.redirect("/dashboard/me");
+});
+
+// Add note
+router.post("/me/note/add", requireSession, express.urlencoded({ extended: false }), async (req, res) => {
+  const { note } = req.body;
+  if (note && note.trim()) {
+    await addPersonalNote(req.session.tid, note.trim()).catch(() => {});
+  }
+  res.redirect("/dashboard/me");
+});
+
+// Edit note
+router.post("/me/note/:id/edit", requireSession, express.urlencoded({ extended: false }), async (req, res) => {
+  const { note } = req.body;
+  if (note && note.trim()) {
+    await updatePersonalNote(req.params.id, req.session.tid, note.trim()).catch(() => {});
+  }
+  res.redirect("/dashboard/me");
+});
+
+// Delete note
+router.post("/me/note/:id/delete", requireSession, async (req, res) => {
+  await deletePersonalNote(req.params.id, req.session.tid).catch(() => {});
+  res.redirect("/dashboard/me");
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -799,29 +848,66 @@ button:hover{background:#2ea043}
 function buildPersonalHtml({ user, myTasks, myNotes }) {
   const name = esc(user.name || "Team Member");
   const initials = (user.name || "?").split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+  const overdueCount = myTasks.filter((t) => t.deadline && new Date(t.deadline) < new Date()).length;
 
-  const taskRows = myTasks.length
-    ? myTasks.map((t) =>
-        `<tr>
-          <td>${esc(t.task)}</td>
-          <td class="${t.deadline ? (new Date(t.deadline) < new Date() ? "overdue" : "") : ""}">${esc(t.deadline || "—")}</td>
-          <td>
-            <form method="POST" action="/dashboard/me/task/${t.id}/done" style="display:inline">
-              <button type="submit" class="btn-done">✓ Done</button>
-            </form>
-          </td>
-        </tr>`
-      ).join("")
-    : `<tr><td colspan="3" class="empty">No pending tasks 🎉<br><small>Add one via <code>/mytask</code> in Telegram</small></td></tr>`;
+  // Task rows — with edit form (hidden by default) and delete/done buttons
+  const taskRows = myTasks.map((t) => {
+    const dlCls = t.deadline && new Date(t.deadline) < new Date() ? " overdue" : "";
+    return `
+    <tr id="task-row-${t.id}">
+      <td class="task-text">${esc(t.task)}</td>
+      <td class="task-dl${dlCls}">${esc(t.deadline || "\u2014")}</td>
+      <td class="task-actions">
+        <form method="POST" action="/dashboard/me/task/${t.id}/done" style="display:inline">
+          <button type="submit" class="btn btn-done" title="Mark done">&#x2713; Done</button>
+        </form>
+        <button type="button" class="btn btn-edit" onclick="toggleEdit(${t.id})" title="Edit">&#x270E; Edit</button>
+        <form method="POST" action="/dashboard/me/task/${t.id}/delete" style="display:inline"
+              onsubmit="return confirm('Delete this task?')">
+          <button type="submit" class="btn btn-del" title="Delete">&#x1F5D1;</button>
+        </form>
+      </td>
+    </tr>
+    <tr id="edit-row-${t.id}" class="edit-row" style="display:none">
+      <td colspan="3">
+        <form method="POST" action="/dashboard/me/task/${t.id}/edit" class="inline-form">
+          <input name="task" value="${esc(t.task)}" required class="inp" placeholder="Task text"/>
+          <input name="deadline" value="${esc(t.deadline || "")}" class="inp inp-sm" placeholder="YYYY-MM-DD" type="date"/>
+          <button type="submit" class="btn btn-save">Save</button>
+          <button type="button" class="btn btn-cancel" onclick="toggleEdit(${t.id})">Cancel</button>
+        </form>
+      </td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="3" class="empty">No pending tasks &#x1F389;<br><small>Use the form above to add one</small></td></tr>`;
 
-  const noteRows = myNotes.length
-    ? myNotes.map((n) =>
-        `<div class="note-item">
-          <div class="note-text">${esc(n.note)}</div>
-          <div class="note-date">${n.created_at ? n.created_at.substring(0, 10) : ""}</div>
-        </div>`
-      ).join("")
-    : `<div class="empty">No notes yet.<br><small>Add one via <code>/note</code> in Telegram</small></div>`;
+  // Note rows — with edit form and delete button
+  const noteRows = myNotes.map((n) => {
+    const date = n.created_at ? n.created_at.substring(0, 10) : "";
+    return `
+    <div class="note-item" id="note-${n.id}">
+      <div class="note-body">
+        <div class="note-text" id="note-text-${n.id}">${esc(n.note)}</div>
+        <form id="note-edit-form-${n.id}" method="POST" action="/dashboard/me/note/${n.id}/edit"
+              class="note-edit-form" style="display:none">
+          <textarea name="note" required class="note-ta">${esc(n.note)}</textarea>
+          <div class="note-edit-btns">
+            <button type="submit" class="btn btn-save">Save</button>
+            <button type="button" class="btn btn-cancel" onclick="toggleNoteEdit(${n.id})">Cancel</button>
+          </div>
+        </form>
+      </div>
+      <div class="note-meta">
+        <span class="note-date">${date}</span>
+        <div class="note-act">
+          <button type="button" class="btn btn-edit" onclick="toggleNoteEdit(${n.id})" title="Edit">&#x270E;</button>
+          <form method="POST" action="/dashboard/me/note/${n.id}/delete" style="display:inline"
+                onsubmit="return confirm('Delete this note?')">
+            <button type="submit" class="btn btn-del" title="Delete">&#x1F5D1;</button>
+          </form>
+        </div>
+      </div>
+    </div>`;
+  }).join("") || `<div class="empty">No notes yet.<br><small>Use the form below to add one</small></div>`;
 
   const now = new Date().toLocaleString("en-IN", {
     timeZone: process.env.TIMEZONE || "Asia/Kolkata",
@@ -829,88 +915,161 @@ function buildPersonalHtml({ user, myTasks, myNotes }) {
   });
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>ClawMeet — My Workspace</title>
+<title>ClawMeet \u2014 My Workspace</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e1e4e8;min-height:100vh}
 .hdr{background:#161b22;border-bottom:1px solid #30363d;padding:14px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
 .hdr-left{display:flex;align-items:center;gap:12px}
 .avatar{width:38px;height:38px;background:linear-gradient(135deg,#1f6feb,#58a6ff);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0}
-.hdr h1{font-size:16px;font-weight:600;color:#c9d1d9}.hdr .sub{font-size:11px;color:#8b949e;margin-top:2px}
+.hdr-title{font-size:16px;font-weight:600;color:#c9d1d9}.hdr-sub{font-size:11px;color:#8b949e;margin-top:2px}
 .nav{display:flex;gap:8px;flex-wrap:wrap}
 .nav a{background:#21262d;border:1px solid #30363d;color:#8b949e;padding:5px 12px;border-radius:6px;text-decoration:none;font-size:12px}
 .nav a:hover{color:#e1e4e8;background:#30363d}
-.nav a.danger{color:#f85149;border-color:#f85149}
+.nav a.danger{color:#f85149;border-color:#f85149;font-weight:500}
 .nav a.danger:hover{background:#2d1117}
-.main{padding:20px 24px;max-width:1100px;margin:0 auto}
+.main{padding:20px 24px;max-width:1200px;margin:0 auto}
+/* KPI cards */
 .srow{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:22px}
 .sc{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}
 .sc .val{font-size:26px;font-weight:700;color:#58a6ff}.sc .lbl{font-size:11px;color:#8b949e;margin-top:3px;text-transform:uppercase;letter-spacing:.4px}
-.g2{display:grid;grid-template-columns:1fr 1fr;gap:18px}@media(max-width:700px){.g2{grid-template-columns:1fr}}
-.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:0}
-.card h2{font-size:13px;font-weight:600;color:#c9d1d9;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #21262d}
+.sc.ov .val{color:#f85149}
+/* Two-column grid */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:780px){.g2{grid-template-columns:1fr}}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px}
+.card-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #21262d}
+.card-hdr h2{font-size:13px;font-weight:600;color:#c9d1d9}
+.card-hdr span{font-size:11px;color:#484f58;font-weight:400}
+/* Add forms */
+.add-form{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.add-form .inp{flex:1;min-width:120px;padding:7px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e1e4e8;font-size:12px;outline:none}
+.add-form .inp:focus{border-color:#58a6ff}
+.add-form .inp-sm{max-width:130px}
+/* Table */
 table{width:100%;border-collapse:collapse;font-size:12px}
 th{text-align:left;color:#8b949e;font-weight:500;padding:6px 7px;border-bottom:1px solid #21262d}
 td{padding:7px 7px;border-bottom:1px solid #0d1117;color:#c9d1d9;vertical-align:middle}
 tr:hover td{background:#1c2128}
-.empty{text-align:center;color:#484f58;padding:18px;font-size:12px;line-height:1.7}
-.empty small,.empty code{color:#6e7681;font-size:11px}
-.btn-done{background:#1a4731;color:#3fb950;border:1px solid #238636;border-radius:5px;padding:3px 10px;cursor:pointer;font-size:11px}
-.btn-done:hover{background:#1d5738}
+.edit-row td{background:#0d1117 !important;padding:8px 7px}
+.task-actions{white-space:nowrap;width:1%}
 .overdue{color:#f85149;font-weight:500}
-.note-item{padding:10px 0;border-bottom:1px solid #21262d;display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+/* Inline edit form in table */
+.inline-form{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.inline-form .inp{padding:5px 8px;background:#161b22;border:1px solid #30363d;border-radius:5px;color:#e1e4e8;font-size:12px;outline:none;flex:1;min-width:100px}
+.inline-form .inp:focus{border-color:#58a6ff}
+.inline-form .inp-sm{max-width:130px}
+/* Buttons */
+.btn{padding:3px 9px;border:1px solid transparent;border-radius:5px;cursor:pointer;font-size:11px;font-weight:500;transition:opacity .15s}
+.btn-done{background:#1a4731;color:#3fb950;border-color:#238636}.btn-done:hover{background:#1d5738}
+.btn-edit{background:#1a3a5c;color:#58a6ff;border-color:#1f6feb}.btn-edit:hover{background:#1f3d6b}
+.btn-del{background:#2d1117;color:#f85149;border-color:#6e2024;font-size:13px;padding:2px 7px}.btn-del:hover{background:#3d1117}
+.btn-save{background:#238636;color:#fff;border-color:#2ea043}.btn-save:hover{background:#2ea043}
+.btn-cancel{background:#21262d;color:#8b949e;border-color:#30363d}.btn-cancel:hover{color:#e1e4e8}
+.btn-add{background:#238636;color:#fff;border-color:#2ea043;padding:7px 14px;font-size:12px}.btn-add:hover{background:#2ea043}
+/* Empty state */
+.empty{text-align:center;color:#484f58;padding:18px;font-size:12px;line-height:1.8}
+.empty small{font-size:11px}
+/* Notes */
+.notes-scroll{max-height:420px;overflow-y:auto}
+.note-item{padding:11px 0;border-bottom:1px solid #1c2128;display:flex;gap:10px;align-items:flex-start}
 .note-item:last-child{border-bottom:none}
-.note-text{font-size:13px;color:#c9d1d9;line-height:1.5;flex:1}
-.note-date{font-size:10px;color:#484f58;flex-shrink:0;margin-top:2px}
-.telegram-tip{background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:14px 16px;margin-top:18px;font-size:12px;color:#8b949e;line-height:1.8}
-.telegram-tip strong{color:#c9d1d9}.telegram-tip code{background:#161b22;padding:1px 6px;border-radius:4px;font-family:monospace;color:#d2a8ff}
+.note-body{flex:1;min-width:0}
+.note-text{font-size:13px;color:#c9d1d9;line-height:1.55;word-break:break-word}
+.note-meta{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
+.note-date{font-size:10px;color:#484f58}
+.note-act{display:flex;gap:4px}
+.note-edit-form{margin-top:6px}
+.note-ta{width:100%;padding:7px 9px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e1e4e8;font-size:12px;font-family:inherit;resize:vertical;min-height:60px;outline:none}
+.note-ta:focus{border-color:#58a6ff}
+.note-edit-btns{display:flex;gap:6px;margin-top:6px}
+/* Add note form */
+.note-add-form{margin-top:12px;padding-top:12px;border-top:1px solid #21262d}
+.note-add-form textarea{width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e1e4e8;font-size:12px;font-family:inherit;resize:vertical;min-height:64px;outline:none;margin-bottom:8px}
+.note-add-form textarea:focus{border-color:#58a6ff}
 .ftr{text-align:center;padding:14px;color:#484f58;font-size:11px;border-top:1px solid #21262d;margin-top:20px}
 </style></head><body>
+
 <div class="hdr">
   <div class="hdr-left">
     <div class="avatar">${initials}</div>
-    <div><div class="hdr h1">Welcome, ${name}</div><div class="sub">My Workspace · ${esc(now)}</div></div>
+    <div><div class="hdr-title">Welcome, ${name}</div><div class="hdr-sub">My Workspace &middot; ${esc(now)}</div></div>
   </div>
   <div class="nav">
-    <a href="/dashboard/public">📊 Team View</a>
-    <a href="/dashboard" ${process.env.DASHBOARD_TOKEN ? "" : ""}>🏠 Team Dashboard</a>
-    <a href="/dashboard/logout" class="danger">⏏ Logout</a>
+    <a href="/dashboard/public">&#x1F465; Team View</a>
+    <a href="/dashboard">&#x1F3E0; Team Dashboard</a>
+    <a href="/dashboard/logout" class="danger">&#x23CF; Logout</a>
   </div>
 </div>
+
 <div class="main">
 
+<!-- KPI cards -->
 <div class="srow">
   <div class="sc"><div class="val">${myTasks.length}</div><div class="lbl">Pending Tasks</div></div>
   <div class="sc"><div class="val">${myNotes.length}</div><div class="lbl">My Notes</div></div>
-  <div class="sc"><div class="val">${myTasks.filter(t => t.deadline && new Date(t.deadline) < new Date()).length}</div><div class="lbl">Overdue</div></div>
-  <div class="sc"><div class="val">${esc(user.telegram_id || "—")}</div><div class="lbl">Telegram ID</div></div>
+  <div class="sc${overdueCount > 0 ? " ov" : ""}"><div class="val">${overdueCount}</div><div class="lbl">Overdue</div></div>
+  <div class="sc"><div class="val" style="font-size:14px">${esc(String(user.telegram_id || "\u2014"))}</div><div class="lbl">Telegram ID</div></div>
 </div>
 
+<!-- Tasks + Notes -->
 <div class="g2">
+
+  <!-- TASKS CARD -->
   <div class="card">
-    <h2>📋 My Tasks <span style="color:#484f58;font-weight:400;font-size:11px">(${myTasks.length} pending)</span></h2>
+    <div class="card-hdr">
+      <h2>&#x1F4CB; My Tasks</h2>
+      <span>${myTasks.length} pending</span>
+    </div>
+    <!-- Add task form -->
+    <form method="POST" action="/dashboard/me/task/add" class="add-form">
+      <input name="task" class="inp" placeholder="New task..." required/>
+      <input name="deadline" type="date" class="inp inp-sm" title="Deadline (optional)"/>
+      <button type="submit" class="btn btn-add">+ Add</button>
+    </form>
+    <!-- Task table -->
+    <div style="overflow-x:auto">
     <table>
-      <thead><tr><th>Task</th><th>Deadline</th><th>Action</th></tr></thead>
+      <thead><tr><th>Task</th><th>Deadline</th><th>Actions</th></tr></thead>
       <tbody>${taskRows}</tbody>
     </table>
+    </div>
   </div>
+
+  <!-- NOTES CARD -->
   <div class="card">
-    <h2>🗒 My Notes <span style="color:#484f58;font-weight:400;font-size:11px">(${myNotes.length})</span></h2>
-    <div style="max-height:360px;overflow-y:auto">${noteRows}</div>
+    <div class="card-hdr">
+      <h2>&#x1F5D2; My Notes</h2>
+      <span>${myNotes.length} notes</span>
+    </div>
+    <div class="notes-scroll">${noteRows}</div>
+    <!-- Add note form -->
+    <div class="note-add-form">
+      <form method="POST" action="/dashboard/me/note/add">
+        <textarea name="note" placeholder="Write a new note..." required></textarea>
+        <button type="submit" class="btn btn-add">+ Add Note</button>
+      </form>
+    </div>
   </div>
-</div>
-
-<div class="telegram-tip">
-  <strong>💡 Manage your workspace from Telegram:</strong><br>
-  <code>/mytask Task text | deadline</code> — add a task &nbsp;·&nbsp;
-  <code>/mytasks</code> — list tasks &nbsp;·&nbsp;
-  <code>/mydonetask #id</code> — mark done<br>
-  <code>/note Your note</code> — save a note &nbsp;·&nbsp;
-  <code>/mynotes</code> — list notes
-</div>
 
 </div>
-<div class="ftr">ClawMeet Bot · My Personal Workspace · Data is private to you</div>
+</div>
+
+<div class="ftr">ClawMeet Bot &middot; My Personal Workspace &middot; Data is private to you</div>
+
+<script>
+function toggleEdit(id) {
+  const row = document.getElementById('edit-row-' + id);
+  row.style.display = row.style.display === 'none' ? '' : 'none';
+}
+function toggleNoteEdit(id) {
+  const form = document.getElementById('note-edit-form-' + id);
+  const text = document.getElementById('note-text-' + id);
+  const show = form.style.display === 'none';
+  form.style.display = show ? '' : 'none';
+  text.style.display = show ? 'none' : '';
+}
+</script>
 </body></html>`;
 }
 

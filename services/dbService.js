@@ -562,6 +562,14 @@ async function deletePersonalTask(id, telegramId) {
   return res.rowsAffected;
 }
 
+async function updatePersonalTask(id, telegramId, task, deadline) {
+  const res = await db.execute({
+    sql: "UPDATE personal_tasks SET task = ?, deadline = ? WHERE id = ? AND telegram_id = ?",
+    args: [task.trim(), deadline || "", id, String(telegramId)],
+  });
+  return res.rowsAffected;
+}
+
 // ── Personal Notes ────────────────────────────────────────────────────────────
 
 async function addPersonalNote(telegramId, note) {
@@ -587,6 +595,14 @@ async function deletePersonalNote(id, telegramId) {
   return res.rowsAffected;
 }
 
+async function updatePersonalNote(id, telegramId, note) {
+  const res = await db.execute({
+    sql: "UPDATE personal_notes SET note = ? WHERE id = ? AND telegram_id = ?",
+    args: [note.trim(), id, String(telegramId)],
+  });
+  return res.rowsAffected;
+}
+
 module.exports = {
   initDb,
   saveMeeting, hasReminderBeenSent, markReminderSent, saveSummary,
@@ -598,8 +614,8 @@ module.exports = {
   addTeamMember, getAllMembers, removeMemberByName,
   getMeetingAnalytics,
   // Personal workspace
-  addPersonalTask, getPersonalTasks, donePersonalTask, deletePersonalTask,
-  addPersonalNote, getPersonalNotes, deletePersonalNote,
+  addPersonalTask, getPersonalTasks, donePersonalTask, deletePersonalTask, updatePersonalTask,
+  addPersonalNote, getPersonalNotes, deletePersonalNote, updatePersonalNote,
   // Users
   upsertUser, getUserByTelegramId, generateLinkToken, getUserByLinkToken,
   getPersonalWorkspaceSummary,
