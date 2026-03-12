@@ -82,6 +82,23 @@ async function initDb() {
       note        TEXT NOT NULL,
       created_at  TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+      telegram_id TEXT UNIQUE,
+      name        TEXT,
+      username    TEXT,
+      link_token  TEXT UNIQUE,
+      created_at  TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS transcripts (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id  TEXT NOT NULL,
+      content     TEXT NOT NULL,
+      visibility  TEXT DEFAULT 'team',
+      created_at  TEXT DEFAULT (datetime('now'))
+    );
   `);
   logger.info("Database ready" + (process.env.TURSO_DATABASE_URL ? " (Turso cloud)" : " (local SQLite)"));
 }
@@ -371,6 +388,85 @@ async function getMeetingAnalytics() {
   };
 }
 
+// ── Users ─────────────────────────────────────────────────────────────────────
+
+/** Create or update a user record from Telegram identity */
+async function upsertUser(telegramId, name, username) {
+  await db.execute({
+    sql: `INSERT INTO users (telegram_id, name, username)
+          VALUES (?, ?, ?)
+          ON CONFLICT(telegram_id) DO UPDATE SET name = excluded.name, username = excluded.username`,
+    args: [String(telegramId), name || null, username || null],
+  });
+}
+
+async function getUserByTelegramId(telegramId) {
+  const res = await db.execute({
+    sql: "SELECT * FROM users WHERE telegram_id = ?",
+    args: [String(telegramId)],
+  });
+  return res.rows[0] || null;
+}
+
+/** Generate (or return existing) a short link token for dashboard pairing */
+async function generateLinkToken(telegramId) {
+  const existing = await getUserByTelegramId(telegramId);
+  if (existing && existing.link_token) return existing.link_token;
+  const token = require("crypto").randomBytes(12).toString("hex");
+  await db.execute({
+    sql: "UPDATE users SET link_token = ? WHERE telegram_id = ?",
+    args: [token, String(telegramId)],
+  });
+  return token;
+}
+
+async function getUserByLinkToken(token) {
+  const res = await db.execute({
+    sql: "SELECT * FROM users WHERE link_token = ?",
+    args: [token],
+  });
+  return res.rows[0] || null;
+}
+
+/** Get personal workspace summary (for dashboard) */
+async function getPersonalWorkspaceSummary() {
+  const [ptRows, pnRows] = await Promise.all([
+    db.execute("SELECT telegram_id, COUNT(*) as cnt FROM personal_tasks WHERE done = 0 GROUP BY telegram_id"),
+    db.execute("SELECT COUNT(*) as cnt FROM personal_notes"),
+  ]);
+  const totalPersonalTasks = ptRows.rows.reduce((s, r) => s + Number(r.cnt), 0);
+  const totalPersonalNotes = Number(pnRows.rows[0]?.cnt ?? 0);
+  const usersWithTasks = ptRows.rows.length;
+  return { totalPersonalTasks, totalPersonalNotes, usersWithTasks };
+}
+
+// ── Transcripts ───────────────────────────────────────────────────────────────
+
+async function saveTranscript(meetingId, content, visibility = "team") {
+  await db.execute({
+    sql: "INSERT INTO transcripts (meeting_id, content, visibility) VALUES (?, ?, ?)",
+    args: [meetingId, content, visibility],
+  });
+}
+
+async function getTranscriptsByMeeting(meetingId) {
+  const res = await db.execute({
+    sql: "SELECT * FROM transcripts WHERE meeting_id = ? ORDER BY created_at DESC",
+    args: [meetingId],
+  });
+  return res.rows;
+}
+
+// ── Team Tasks (manual, no meeting required) ──────────────────────────────────
+
+async function saveTeamTask(person, task, deadline) {
+  await db.execute({
+    sql: `INSERT INTO tasks (meeting_id, meeting_subject, person, task, deadline)
+          VALUES (?, ?, ?, ?, ?)`,
+    args: ["manual", "Team Task", (person || "Team").trim(), task.trim(), deadline || ""],
+  });
+}
+
 // ── Personal Tasks ────────────────────────────────────────────────────────────
 
 async function addPersonalTask(telegramId, task, deadline) {
@@ -441,5 +537,12 @@ module.exports = {
   // Personal workspace
   addPersonalTask, getPersonalTasks, donePersonalTask, deletePersonalTask,
   addPersonalNote, getPersonalNotes, deletePersonalNote,
+  // Users
+  upsertUser, getUserByTelegramId, generateLinkToken, getUserByLinkToken,
+  getPersonalWorkspaceSummary,
+  // Transcripts
+  saveTranscript, getTranscriptsByMeeting,
+  // Team tasks (manual)
+  saveTeamTask,
 };
 

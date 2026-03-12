@@ -5,7 +5,8 @@ const { getRecentMeetings, getPendingTasks, markTaskDone, getMeetingByKeyword, g
         searchTasks, clearDoneTasks, editTask, getTaskById, saveAttendance, getAttendance,
         addTeamMember, getAllMembers, removeMemberByName, getMeetingAnalytics,
         addPersonalTask, getPersonalTasks, donePersonalTask, deletePersonalTask,
-        addPersonalNote, getPersonalNotes, deletePersonalNote } = require("./dbService");
+        addPersonalNote, getPersonalNotes, deletePersonalNote,
+        upsertUser, generateLinkToken, saveTeamTask } = require("./dbService");
 const { getScheduledMeetings, createTeamsMeeting, deleteCalendarEvent, getMeetingRecordings } = require("./calendarService");
 const { parseNaturalLanguageCommand } = require("./aiSummaryService");
 const { convertPdf, cleanup } = require("./pdfLLMService");
@@ -1568,6 +1569,79 @@ bot.on("message", async (msg) => {
   }
 
   logger.info(`[${msg.chat.type}] ${msg.from.username || msg.from.first_name}: ${text}`);
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TEAM WORKSPACE — team tasks (visible to all)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// /teamtask [person |] task [| deadline] — save a team task
+bot.onText(/\/teamtask(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const input = match && match[1] ? match[1].trim() : null;
+  if (!input) {
+    return bot.sendMessage(chatId,
+      "👥 <b>Add a team task:</b>\n<code>/teamtask Task text</code>\n<code>/teamtask Person | Task text | deadline</code>\n\nExamples:\n• <code>/teamtask Prepare demo slides</code>\n• <code>/teamtask Alice | Update API docs | 2026-03-20</code>",
+      { parse_mode: "HTML" });
+  }
+  const parts = input.split("|").map((s) => s.trim());
+  let person = "Team", task, deadline = "";
+  if (parts.length >= 3) {
+    [person, task, deadline] = parts;
+  } else if (parts.length === 2) {
+    // Could be "person | task" or "task | deadline" — if 2nd part looks like a date, treat as deadline
+    if (/^\d{4}-\d{2}-\d{2}$/.test(parts[1])) {
+      task = parts[0]; deadline = parts[1];
+    } else {
+      person = parts[0]; task = parts[1];
+    }
+  } else {
+    task = parts[0];
+  }
+  if (!task) {
+    return bot.sendMessage(chatId, "❌ Task text is required.");
+  }
+  await saveTeamTask(person, task, deadline);
+  bot.sendMessage(chatId,
+    `👥 <b>Team task saved</b>\n\n👤 Assigned to: <b>${person}</b>\n📋 ${task}${deadline ? `\n📅 Due: <b>${deadline}</b>` : ""}\n\n<i>Visible to the whole team. Use /tasks to view.</i>`,
+    { parse_mode: "HTML" });
+});
+
+// /teamtasks — alias for /tasks showing all pending team tasks
+bot.onText(/\/teamtasks/, async (msg) => {
+  const chatId = msg.chat.id;
+  try {
+    const tasks = await getPendingTasks();
+    if (!tasks.length) {
+      return bot.sendMessage(chatId, "👥 <b>Team Tasks</b>\n\nNo pending team tasks! 🎉", { parse_mode: "HTML" });
+    }
+    const lines = tasks.slice(0, 20).map((t, i) =>
+      `${i + 1}. <b>${t.person}</b>: ${t.task}${t.deadline ? ` — 📅 <i>${t.deadline}</i>` : ""} <code>[#${t.id}]</code>`
+    );
+    bot.sendMessage(chatId,
+      `👥 <b>Team Tasks</b>  (${tasks.length} pending)\n\n${lines.join("\n")}\n\n✅ Mark done: <code>/done #id</code>`,
+      { parse_mode: "HTML" });
+  } catch (err) {
+    logger.error("/teamtasks error:", err);
+    bot.sendMessage(chatId, "❌ Could not load team tasks.");
+  }
+});
+
+// /myprofile — show your personal profile and dashboard link
+bot.onText(/\/myprofile/, async (msg) => {
+  const chatId = msg.chat.id;
+  const from = msg.from;
+  try {
+    await upsertUser(from.id, from.first_name + (from.last_name ? " " + from.last_name : ""), from.username);
+    const token = await generateLinkToken(from.id);
+    const base = process.env.RENDER_EXTERNAL_URL || "http://localhost:" + (process.env.PORT || 3000);
+    bot.sendMessage(chatId,
+      `👤 <b>My Profile</b>\n\n🙋 ${from.first_name}${from.username ? ` (@${from.username})` : ""}\n🆔 Telegram ID: <code>${from.id}</code>\n\n🔗 <b>Dashboard Link:</b>\n<a href="${base}/dashboard">${base}/dashboard</a>`,
+      { parse_mode: "HTML", disable_web_page_preview: true });
+  } catch (err) {
+    logger.error("/myprofile error:", err);
+    bot.sendMessage(chatId, "❌ Could not load profile.");
+  }
 });
 
 // ══════════════════════════════════════════════════════════════════════════════

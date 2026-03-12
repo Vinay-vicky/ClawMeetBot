@@ -3,7 +3,7 @@ const express = require("express");
 const router = express.Router();
 const {
   getRecentMeetings, getPendingTasks, getMeetingStats, getTaskStats, getMeetingAnalytics,
-  markTaskDone,
+  markTaskDone, getPersonalWorkspaceSummary,
 } = require("../services/dbService");
 const { getScheduledMeetings } = require("../services/calendarService");
 const logger = require("../utils/logger");
@@ -51,12 +51,13 @@ router.get("/", authCheck, async (req, res) => {
     const tokenParam = process.env.DASHBOARD_TOKEN && req.query.token
       ? `?token=${encodeURIComponent(req.query.token)}` : "";
 
-    const [meetings, tasks, meetStats, taskStats, analytics] = await Promise.all([
+    const [meetings, tasks, meetStats, taskStats, analytics, personalSummary] = await Promise.all([
       getRecentMeetings(20),
       getPendingTasks(),
       getMeetingStats(),
       getTaskStats(),
       getMeetingAnalytics(),
+      getPersonalWorkspaceSummary().catch(() => ({ totalPersonalTasks: 0, totalPersonalNotes: 0, usersWithTasks: 0 })),
     ]);
 
     let todayMeetings = [];
@@ -68,7 +69,7 @@ router.get("/", authCheck, async (req, res) => {
     const completionFrac = (analytics.completionRate ?? 0) / 100;
     const productivityScore = Math.round(completionFrac * 40 + aiCoverage * 30 + activityScore * 30);
 
-    res.send(buildHtml({ meetings, tasks, meetStats, taskStats, analytics, todayMeetings, tokenParam, productivityScore, summaryCount }));
+    res.send(buildHtml({ meetings, tasks, meetStats, taskStats, analytics, todayMeetings, tokenParam, productivityScore, summaryCount, personalSummary }));
   } catch (err) {
     logger.error("Dashboard render error:", err);
     res.status(500).send(`<h1 style="color:red;font-family:sans-serif">Dashboard Error</h1><pre>${err.message}</pre>`);
@@ -113,7 +114,7 @@ function scoreColor(score) {
 }
 
 // ── HTML template ──────────────────────────────────────────────────────────────
-function buildHtml({ meetings, tasks, meetStats, taskStats, analytics, todayMeetings, tokenParam, productivityScore, summaryCount }) {
+function buildHtml({ meetings, tasks, meetStats, taskStats, analytics, todayMeetings, tokenParam, productivityScore, summaryCount, personalSummary = {} }) {
   const baseUrl = "/dashboard" + tokenParam;
   const apiUrl  = "/dashboard/api" + tokenParam;
   const now = new Date().toLocaleString("en-IN", {
@@ -311,6 +312,41 @@ tr:hover td{background:#1c2128}
   <h2>🕑 Recent Meetings</h2>
   <table><thead><tr><th>Subject</th><th>Start</th><th>Organizer</th><th>Summary</th><th>Link</th></tr></thead>
   <tbody>${meetRows}</tbody></table>
+</div>
+
+<!-- ═══ PERSONAL WORKSPACE ═══ -->
+<div class="fc" style="border-color:#6e40c9;margin-top:24px">
+  <h2 style="color:#a371f7">🔒 Personal Workspace <span style="font-weight:400;color:#484f58;text-transform:none;letter-spacing:0">(private — only visible to each user via Telegram)</span></h2>
+  <div class="srow" style="margin-bottom:12px">
+    <div class="sc"><div class="val" style="color:#a371f7">${personalSummary.totalPersonalTasks ?? 0}</div><div class="lbl">Personal Tasks</div></div>
+    <div class="sc"><div class="val" style="color:#a371f7">${personalSummary.totalPersonalNotes ?? 0}</div><div class="lbl">Personal Notes</div></div>
+    <div class="sc"><div class="val" style="color:#a371f7">${personalSummary.usersWithTasks ?? 0}</div><div class="lbl">Active Users</div></div>
+  </div>
+  <p style="font-size:11px;color:#484f58;line-height:1.6">
+    Personal tasks and notes are private per Telegram user — not shown here in detail.<br>
+    Each user can manage their own workspace via:
+    <code>/mytasks</code> &nbsp; <code>/mytask</code> &nbsp; <code>/mynotes</code> &nbsp; <code>/note</code> &nbsp; <code>/myprofile</code>
+  </p>
+</div>
+
+<!-- ═══ API REFERENCE ═══ -->
+<div class="fc" style="border-color:#30363d;margin-top:16px">
+  <h2>🔌 REST API Endpoints</h2>
+  <table>
+    <thead><tr><th>Method</th><th>Endpoint</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge g">GET</span></td><td><code>/api/tasks</code></td><td>All pending team tasks</td></tr>
+      <tr><td><span class="badge g">POST</span></td><td><code>/api/tasks</code></td><td>Create team task <code>{ person, task, deadline }</code></td></tr>
+      <tr><td><span class="badge" style="background:#1a3a5c;color:#58a6ff">PATCH</span></td><td><code>/api/tasks/:id/done</code></td><td>Mark team task done</td></tr>
+      <tr><td><span class="badge g">GET</span></td><td><code>/api/tasks/personal/:telegramId</code></td><td>Personal tasks for a user</td></tr>
+      <tr><td><span class="badge g">GET</span></td><td><code>/api/notes/meeting/:meetingId</code></td><td>Meeting notes</td></tr>
+      <tr><td><span class="badge g">GET</span></td><td><code>/api/notes/personal/:telegramId</code></td><td>Personal notes for a user</td></tr>
+      <tr><td><span class="badge g">GET</span></td><td><code>/api/notes/transcript/:meetingId</code></td><td>Meeting transcripts</td></tr>
+      <tr><td><span class="badge g">GET</span></td><td><code>/api/auth/user/:telegramId</code></td><td>User profile</td></tr>
+      <tr><td><span class="badge g">POST</span></td><td><code>/api/auth/link-token</code></td><td>Generate dashboard link token</td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:11px;color:#484f58;margin-top:8px">All endpoints require <code>?token=DASHBOARD_TOKEN</code> or <code>Authorization: Bearer TOKEN</code> header when DASHBOARD_TOKEN is set.</p>
 </div>
 
 </div>

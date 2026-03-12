@@ -10,6 +10,9 @@ const { getMeetings } = require("./services/teamsService");
 const { generateMeetingSummary } = require("./services/aiSummaryService");
 const { initDb, getRecentMeetings, getPendingTasks, markTaskDone } = require("./services/dbService");
 const dashboardRouter = require("./routes/dashboard");
+const authRouter   = require("./routes/auth");
+const tasksRouter  = require("./routes/tasks");
+const notesRouter  = require("./routes/notes");
 
 // ── Sentry (error monitoring) ─────────────────────────────────────────────────
 if (process.env.SENTRY_DSN) {
@@ -307,6 +310,9 @@ initDb().then(() => {
       { command: "intelligence",  description: "Advanced meeting analytics" },
       { command: "recordings",    description: "Find a meeting recording" },
       { command: "attendance",    description: "View or record meeting attendance" },
+      { command: "teamtask",      description: "Add a team-visible task" },
+      { command: "teamtasks",     description: "List all pending team tasks" },
+      { command: "myprofile",     description: "View your profile and dashboard link" },
       { command: "mytask",        description: "Add a private personal task" },
       { command: "mytasks",       description: "List your personal tasks (private)" },
       { command: "mydonetask",    description: "Mark a personal task done (/mydonetask #id)" },
