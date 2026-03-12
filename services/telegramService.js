@@ -1642,7 +1642,12 @@ bot.onText(/\/myprofile/, async (msg) => {
     const token = await generateLinkToken(from.id);
     const base = process.env.RENDER_EXTERNAL_URL || "http://localhost:" + (process.env.PORT || 3000);
     bot.sendMessage(chatId,
-      `👤 <b>My Profile</b>\n\n🙋 ${from.first_name}${from.username ? ` (@${from.username})` : ""}\n🆔 Telegram ID: <code>${from.id}</code>\n\n🔗 <b>Dashboard Link:</b>\n<a href="${base}/dashboard">${base}/dashboard</a>`,
+      `👤 <b>My Profile</b>\n\n` +
+      `🙋 ${from.first_name}${from.username ? ` (@${from.username})` : ""}\n` +
+      `🆔 Telegram ID: <code>${from.id}</code>\n\n` +
+      `🔑 <b>Dashboard Login Token:</b>\n<code>${token}</code>\n\n` +
+      `🔗 <b>Login here:</b>\n<a href="${base}/dashboard/login">${base}/dashboard/login</a>\n\n` +
+      `<i>Paste the token above on the login page to access your personal workspace.</i>`,
       { parse_mode: "HTML", disable_web_page_preview: true });
   } catch (err) {
     logger.error("/myprofile error:", err);
