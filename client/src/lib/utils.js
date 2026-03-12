@@ -1,27 +1,28 @@
 import { useState, useEffect, useCallback } from 'react'
 
-export function useApi(path, deps = []) {
-  const [data, setData] = useState(null)
+export function useApi(url, deps = []) {
+  const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [ts, setTs] = useState(Date.now())
+  const [error,   setError]   = useState(null)
+  const [tick,    setTick]    = useState(0)
 
-  const refresh = useCallback(() => setTs(Date.now()), [])
+  const refresh = useCallback(() => setTick(t => t + 1), [])
 
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
-    setError(null)
-    fetch(path, { credentials: 'same-origin' })
+    fetch(url, { credentials: 'same-origin' })
       .then(r => {
-        if (r.status === 401) { window.location.href = '/dashboard/login'; return null; }
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        if (r.status === 401) { window.location.href = '/dashboard/login'; return null }
+        if (!r.ok) throw new Error('HTTP ' + r.status)
         return r.json()
       })
-      .then(d => d && setData(d))
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, ts, ...deps])
+      .then(d => { if (!cancelled && d) { setData(d); setError(null) } })
+      .catch(e => { if (!cancelled) setError(e.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url, tick, ...deps])
 
   return { data, loading, error, refresh }
 }
@@ -41,16 +42,17 @@ export function deadlineClass(deadline) {
   try {
     const d = new Date(deadline)
     if (isNaN(d)) return ''
-    const today = new Date(); today.setHours(0,0,0,0)
-    const dd = new Date(d); dd.setHours(0,0,0,0)
-    if (dd < today)  return 'text-red-400 font-semibold'
-    if (dd.getTime() === today.getTime()) return 'text-amber-400 font-semibold'
-    return 'text-muted'
+    const now   = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const dd    = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+    if (dd < today)              return 'dl-overdue'
+    if (dd.getTime() === today.getTime()) return 'dl-today'
+    return ''
   } catch { return '' }
 }
 
 export function scoreColor(score) {
-  if (score >= 70) return 'text-green-400'
-  if (score >= 40) return 'text-amber-400'
-  return 'text-red-400'
+  if (score >= 70) return '#3fb950'
+  if (score >= 40) return '#d29922'
+  return '#f85149'
 }

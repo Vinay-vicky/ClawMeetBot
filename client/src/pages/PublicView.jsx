@@ -1,88 +1,98 @@
-import { fmtTime } from '../lib/utils.js'
-import { useApi } from '../lib/utils.js'
-import { Spinner, ErrorBox, KpiCard } from '../components/KpiCard.jsx'
+import { useApi, fmtTime } from '../lib/utils.js'
+import { Spinner, ErrorBox } from '../components/KpiCard.jsx'
 
 export default function PublicView() {
   const { data, loading, error } = useApi('/dashboard/api/public')
 
-  if (loading) return (
-    <div className="min-h-screen bg-base flex items-center justify-center"><Spinner /></div>
-  )
-  if (error) return (
-    <div className="min-h-screen bg-base p-8"><ErrorBox message={error} /></div>
-  )
+  if (loading) return <div className="main"><Spinner /></div>
+  if (error)   return <div className="main"><ErrorBox message={error} /></div>
 
   const { meetStats, taskStats, analytics, meetings } = data
-  const rate = analytics?.completionRate ?? 0
+  const rate   = analytics?.completionRate ?? 0
+  const maxWk  = Math.max(...(analytics?.weeks || []).map(w => w.count), 1)
+  const now    = new Date().toLocaleString('en-IN', { timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true })
+  const done   = analytics?.doneTasks ?? 0
+  const total  = done + (analytics?.pendingTasks ?? 0)
 
   return (
-    <div className="min-h-screen bg-base font-sans">
-      {/* Header */}
-      <header className="bg-surface border-b border-border px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
+    <div>
+      <div className="hdr">
         <div>
-          <h1 className="text-accent font-bold text-lg">🤖 ClawMeet — Team Overview</h1>
-          <p className="text-muted text-[11px] mt-0.5">Public view</p>
+          <h1>🤖 ClawMeet — Team Overview</h1>
+          <div className="sub">Public view &middot; {now}</div>
         </div>
-        <a href="/dashboard/login" className="bg-green-600 hover:bg-green-500 text-white text-xs font-semibold px-4 py-2 rounded-lg no-underline transition-colors">
-          🔐 My Dashboard
-        </a>
-      </header>
+        <div className="nav">
+          <a href="/dashboard/login">🔐 My Dashboard</a>
+        </div>
+      </div>
 
-      <main className="max-w-4xl mx-auto px-6 py-6">
+      <div className="main">
         {/* KPIs */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
-          <KpiCard label="Total Meetings"   value={meetStats?.total ?? 0} />
-          <KpiCard label="This Week"        value={meetStats?.thisWeek ?? 0} />
-          <KpiCard label="Pending Tasks"    value={taskStats?.pending ?? 0} />
-          <KpiCard label="Done (30d)"       value={taskStats?.doneThisMonth ?? 0} colorClass="text-green-400" />
-          <KpiCard label="Completion Rate"  value={`${rate}%`} colorClass="text-green-400" />
+        <div className="srow">
+          <div className="sc"><div className="val">{meetStats?.total ?? 0}</div><div className="lbl">Total Meetings</div></div>
+          <div className="sc"><div className="val">{meetStats?.thisWeek ?? 0}</div><div className="lbl">This Week</div></div>
+          <div className="sc"><div className="val">{taskStats?.pending ?? 0}</div><div className="lbl">Pending Tasks</div></div>
+          <div className="sc"><div className="val">{taskStats?.doneThisMonth ?? 0}</div><div className="lbl">Done (30d)</div></div>
+          <div className="sc"><div className="val">{rate}%</div><div className="lbl">Completion Rate</div></div>
+        </div>
+
+        <div className="g2">
+          {/* Meetings per week bar chart */}
+          <div className="card">
+            <h2>📊 Meetings per Week</h2>
+            <div className="bc">
+              {(analytics?.weeks || []).map((w, i) => {
+                const h = Math.max(4, Math.round((w.count / maxWk) * 80))
+                return (
+                  <div className="bw" key={i}>
+                    <div className="bar" style={{ height: h }} />
+                    <div className="bl">{w.week}</div>
+                    <div className="bv">{w.count}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Task completion */}
+          <div className="card">
+            <h2>✅ Task Completion</h2>
+            <div style={{ fontSize:28, fontWeight:700, color:'#3fb950' }}>{rate}%</div>
+            <div style={{ fontSize:11, color:'#8b949e', marginTop:2 }}>{done} done / {total} total</div>
+            <div className="pbg"><div className="pb" style={{ width: rate + '%' }} /></div>
+          </div>
         </div>
 
         {/* Recent Meetings */}
-        <div className="card mb-6">
-          <h3 className="section-title">🕑 Recent Meetings</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-muted border-b border-[#21262d]">
-                  <th className="text-left py-2 px-2 font-medium">Subject</th>
-                  <th className="text-left py-2 px-2 font-medium">Start</th>
-                  <th className="text-left py-2 px-2 font-medium">Organizer</th>
-                  <th className="text-left py-2 px-2 font-medium">AI</th>
-                </tr>
-              </thead>
+        <div className="fc">
+          <h2>🕒 Recent Meetings</h2>
+          <div className="table-scroll">
+            <table>
+              <thead><tr><th>Subject</th><th>Start</th><th>Organizer</th><th>AI Summary</th></tr></thead>
               <tbody>
                 {meetings?.slice(0, 8).map(m => (
-                  <tr key={m.id} className="border-b border-[#0d1117] hover:bg-[#1c2128]">
-                    <td className="py-2 px-2 text-gray-300">{m.subject}</td>
-                    <td className="py-2 px-2 text-muted">{fmtTime(m.start_time)}</td>
-                    <td className="py-2 px-2 text-muted">{m.organizer || '—'}</td>
-                    <td className="py-2 px-2">
-                      {m.summary
-                        ? <span className="bg-green-900 text-green-400 px-2 py-0.5 rounded-full text-[10px]">✓ AI</span>
-                        : <span className="bg-[#21262d] text-muted px-2 py-0.5 rounded-full text-[10px]">—</span>}
-                    </td>
+                  <tr key={m.id}>
+                    <td>{m.subject}</td>
+                    <td>{fmtTime(m.start_time)}</td>
+                    <td>{m.organizer || '—'}</td>
+                    <td>{m.summary ? <span className="badge g">✓ AI</span> : <span className="badge gr">—</span>}</td>
                   </tr>
-                )) ?? (
-                  <tr><td colSpan={4} className="text-center text-subtle py-6">No meetings yet</td></tr>
-                )}
+                )) || <tr><td colSpan={4} className="empty">No meetings yet</td></tr>}
               </tbody>
             </table>
           </div>
         </div>
 
         {/* Login CTA */}
-        <div className="card text-center py-8 border-accent/30">
-          <p className="text-muted text-sm mb-4">Want to see your personal tasks and notes?</p>
-          <a href="/dashboard/login" className="inline-block bg-green-600 hover:bg-green-500 text-white font-semibold px-6 py-2.5 rounded-lg no-underline transition-colors text-sm">
+        <div className="fc" style={{ textAlign:'center' }}>
+          <p style={{ color:'#8b949e', fontSize:13, marginBottom:12 }}>Want to see your personal tasks and notes?</p>
+          <a href="/dashboard/login" style={{ background:'#238636', color:'#fff', padding:'9px 22px', borderRadius:6, textDecoration:'none', fontSize:13 }}>
             🔐 Log in with Telegram Link Token
           </a>
         </div>
-      </main>
+      </div>
 
-      <footer className="text-center py-4 text-subtle text-[11px] border-t border-border mt-4">
-        ClawMeet Bot · Real-time team meeting intelligence
-      </footer>
+      <div className="ftr">ClawMeet Bot &middot; Real-time team meeting intelligence</div>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import Layout from '../components/Layout.jsx'
+import { Link } from 'react-router-dom'
 import { Spinner, ErrorBox } from '../components/KpiCard.jsx'
 import { useApi, fmtTime } from '../lib/utils.js'
 
@@ -8,10 +8,14 @@ export default function PersonalDashboard() {
   const [editingTask, setEditingTask] = useState(null)
   const [editingNote, setEditingNote] = useState(null)
 
-  if (loading) return <Layout subtitle="Loading…"><Spinner /></Layout>
-  if (error)   return <Layout subtitle="Error"><ErrorBox message={error} /></Layout>
+  if (loading) return <div className="main"><Spinner /></div>
+  if (error)   return <div className="main"><ErrorBox message={error} /></div>
 
   const { user, tasks, notes } = data
+  const name     = user?.name || 'Team Member'
+  const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+  const overdueCount = (tasks || []).filter(t => t.deadline && new Date(t.deadline) < new Date()).length
+  const now = new Date().toLocaleString('en-IN', { timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true })
 
   async function post(url, body) {
     await fetch(url, {
@@ -24,108 +28,132 @@ export default function PersonalDashboard() {
   }
 
   return (
-    <Layout subtitle={`Logged in as ${user?.name || 'you'}`}>
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
-        <h2 className="text-xl font-bold text-gray-200">👤 My Personal Workspace</h2>
-        <span className="text-xs text-muted bg-purple-700/20 border border-purple-700/40 px-3 py-1 rounded-full">
-          🔒 Private — only visible to you
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Tasks */}
-        <div className="card">
-          <h3 className="section-title">✅ My Tasks</h3>
-
-          {/* Add task form */}
-          <form onSubmit={async e => { e.preventDefault(); const f = new FormData(e.target); await post('/dashboard/me/task/add', { task: f.get('task'), deadline: f.get('deadline') }); e.target.reset() }} className="flex gap-2 mb-4 flex-wrap">
-            <input name="task" required placeholder="New task…" className="flex-1 min-w-0 bg-base border border-border rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-accent" />
-            <input name="deadline" type="date" className="bg-base border border-border rounded-lg px-3 py-1.5 text-sm text-muted focus:outline-none focus:border-accent" />
-            <button type="submit" className="bg-green-600 hover:bg-green-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">+ Add</button>
-          </form>
-
-          {tasks?.length ? (
-            <div className="space-y-2">
-              {tasks.map(t => (
-                <div key={t.id} className="bg-base border border-border rounded-lg p-3">
-                  {editingTask === t.id ? (
-                    <form onSubmit={async e => { e.preventDefault(); const f = new FormData(e.target); await post(`/dashboard/me/task/${t.id}/edit`, { task: f.get('task'), deadline: f.get('deadline') }); setEditingTask(null) }} className="space-y-2">
-                      <input name="task" defaultValue={t.task} required className="w-full bg-surface border border-border rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-accent" />
-                      <div className="flex gap-2 flex-wrap">
-                        <input name="deadline" type="date" defaultValue={t.deadline || ''} className="bg-surface border border-border rounded px-2 py-1.5 text-xs text-muted focus:outline-none focus:border-accent" />
-                        <button type="submit" className="bg-accent text-base text-xs font-semibold px-3 py-1.5 rounded">Save</button>
-                        <button type="button" onClick={() => setEditingTask(null)} className="bg-[#21262d] text-muted text-xs px-3 py-1.5 rounded">Cancel</button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm text-gray-300">{t.task}</p>
-                        {t.deadline && <p className="text-[11px] text-muted mt-0.5">📅 {t.deadline}</p>}
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        <button onClick={() => setEditingTask(t.id)} className="text-muted hover:text-accent text-xs px-2 py-1 rounded bg-[#21262d]" title="Edit">✎</button>
-                        <form onSubmit={async e => { e.preventDefault(); if(confirm('Mark done?')) await post(`/dashboard/me/task/${t.id}/done`, {}) }}>
-                          <button type="submit" className="text-xs px-2 py-1 rounded bg-green-900/40 text-green-400 hover:bg-green-900" title="Done">✓</button>
-                        </form>
-                        <form onSubmit={async e => { e.preventDefault(); if(confirm('Delete?')) await post(`/dashboard/me/task/${t.id}/delete`, {}) }}>
-                          <button type="submit" className="text-xs px-2 py-1 rounded bg-red-900/30 text-red-400 hover:bg-red-900/60" title="Delete">🗑</button>
-                        </form>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-subtle text-sm text-center py-6">No tasks yet. Add one above ↑</p>
-          )}
+    <div>
+      <div className="hdr">
+        <div className="hdr-left">
+          <div className="avatar">{initials}</div>
+          <div>
+            <div className="hdr-title">Welcome, {name}</div>
+            <div className="hdr-sub">My Workspace &middot; {now}</div>
+          </div>
         </div>
-
-        {/* Notes */}
-        <div className="card">
-          <h3 className="section-title">📝 My Notes</h3>
-
-          {/* Add note form */}
-          <form onSubmit={async e => { e.preventDefault(); const f = new FormData(e.target); await post('/dashboard/me/note/add', { note: f.get('note') }); e.target.reset() }} className="flex gap-2 mb-4">
-            <textarea name="note" required placeholder="New note…" rows={2} className="flex-1 bg-base border border-border rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-accent resize-none" />
-            <button type="submit" className="bg-green-600 hover:bg-green-500 text-white text-xs font-semibold px-3 py-2 rounded-lg self-end">+ Add</button>
-          </form>
-
-          {notes?.length ? (
-            <div className="space-y-2">
-              {notes.map(n => (
-                <div key={n.id} className="bg-base border border-border rounded-lg p-3">
-                  {editingNote === n.id ? (
-                    <form onSubmit={async e => { e.preventDefault(); const f = new FormData(e.target); await post(`/dashboard/me/note/${n.id}/edit`, { note: f.get('note') }); setEditingNote(null) }} className="space-y-2">
-                      <textarea name="note" defaultValue={n.note} required rows={3} className="w-full bg-surface border border-border rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-accent resize-none" />
-                      <div className="flex gap-2">
-                        <button type="submit" className="bg-accent text-base text-xs font-semibold px-3 py-1.5 rounded">Save</button>
-                        <button type="button" onClick={() => setEditingNote(null)} className="bg-[#21262d] text-muted text-xs px-3 py-1.5 rounded">Cancel</button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm text-gray-300 whitespace-pre-wrap">{n.note}</p>
-                        {n.created_at && <p className="text-[11px] text-subtle mt-1">{fmtTime(n.created_at)}</p>}
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        <button onClick={() => setEditingNote(n.id)} className="text-muted hover:text-accent text-xs px-2 py-1 rounded bg-[#21262d]" title="Edit">✎</button>
-                        <form onSubmit={async e => { e.preventDefault(); if(confirm('Delete?')) await post(`/dashboard/me/note/${n.id}/delete`, {}) }}>
-                          <button type="submit" className="text-xs px-2 py-1 rounded bg-red-900/30 text-red-400 hover:bg-red-900/60" title="Delete">🗑</button>
-                        </form>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-subtle text-sm text-center py-6">No notes yet. Add one above ↑</p>
-          )}
+        <div className="nav">
+          <Link to="/public">👥 Team View</Link>
+          <Link to="/team">🏠 Team Dashboard</Link>
+          <a href="/dashboard/logout" className="danger">⏏ Logout</a>
         </div>
       </div>
-    </Layout>
+
+      <div className="main">
+        {/* KPI cards */}
+        <div className="srow">
+          <div className="sc"><div className="val">{tasks?.length ?? 0}</div><div className="lbl">Pending Tasks</div></div>
+          <div className="sc"><div className="val">{notes?.length ?? 0}</div><div className="lbl">My Notes</div></div>
+          <div className={"sc" + (overdueCount > 0 ? " ov" : "")}><div className="val">{overdueCount}</div><div className="lbl">Overdue</div></div>
+          <div className="sc"><div className="val" style={{ fontSize:14 }}>{String(user?.telegram_id || '—')}</div><div className="lbl">Telegram ID</div></div>
+        </div>
+
+        {/* Tasks + Notes */}
+        <div className="g2">
+
+          {/* TASKS CARD */}
+          <div className="card">
+            <div className="card-hdr">
+              <h2>📋 My Tasks</h2>
+              <span>{tasks?.length ?? 0} pending</span>
+            </div>
+            <form onSubmit={async e => { e.preventDefault(); const f = new FormData(e.target); await post('/dashboard/me/task/add', { task: f.get('task'), deadline: f.get('deadline') || '' }); e.target.reset() }} className="add-form">
+              <input name="task" className="inp" placeholder="New task..." required />
+              <input name="deadline" type="date" className="inp inp-sm" title="Deadline (optional)" />
+              <button type="submit" className="btn btn-add">+ Add</button>
+            </form>
+            <div style={{ overflowX:'auto' }}>
+              <table>
+                <thead><tr><th>Task</th><th>Deadline</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {tasks?.length ? tasks.map(t => {
+                    const isOverdue = t.deadline && new Date(t.deadline) < new Date()
+                    return [
+                      <tr key={"row-" + t.id}>
+                        <td>{t.task}</td>
+                        <td className={isOverdue ? "overdue" : ""}>{t.deadline || '—'}</td>
+                        <td className="task-actions">
+                          <form method="POST" action={"/dashboard/me/task/" + t.id + "/done"} style={{ display:'inline' }}>
+                            <button type="submit" className="btn btn-done">✓ Done</button>
+                          </form>
+                          {' '}
+                          <button type="button" className="btn btn-edit" onClick={() => setEditingTask(editingTask === t.id ? null : t.id)}>✎ Edit</button>
+                          {' '}
+                          <form method="POST" action={"/dashboard/me/task/" + t.id + "/delete"} style={{ display:'inline' }} onSubmit={e => { if (!window.confirm('Delete this task?')) e.preventDefault() }}>
+                            <button type="submit" className="btn btn-del">🗑</button>
+                          </form>
+                        </td>
+                      </tr>,
+                      editingTask === t.id && (
+                        <tr key={"edit-" + t.id} className="edit-row">
+                          <td colSpan={3}>
+                            <form onSubmit={async e => { e.preventDefault(); const f = new FormData(e.target); await post("/dashboard/me/task/" + t.id + "/edit", { task: f.get('task'), deadline: f.get('deadline') || '' }); setEditingTask(null) }} className="inline-form">
+                              <input name="task" defaultValue={t.task} required className="inp" placeholder="Task text" />
+                              <input name="deadline" defaultValue={t.deadline || ''} className="inp inp-sm" type="date" />
+                              <button type="submit" className="btn btn-save">Save</button>
+                              <button type="button" className="btn btn-cancel" onClick={() => setEditingTask(null)}>Cancel</button>
+                            </form>
+                          </td>
+                        </tr>
+                      )
+                    ]
+                  }) : <tr><td colSpan={3} className="empty">No pending tasks 🎉<br/><small>Use the form above to add one</small></td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* NOTES CARD */}
+          <div className="card">
+            <div className="card-hdr">
+              <h2>🗒 My Notes</h2>
+              <span>{notes?.length ?? 0} notes</span>
+            </div>
+            <div className="notes-scroll">
+              {notes?.length ? notes.map(n => (
+                <div className="note-item" key={n.id}>
+                  <div className="note-body">
+                    {editingNote === n.id ? (
+                      <form onSubmit={async e => { e.preventDefault(); const f = new FormData(e.target); await post("/dashboard/me/note/" + n.id + "/edit", { note: f.get('note') }); setEditingNote(null) }} className="note-edit-form">
+                        <textarea name="note" defaultValue={n.note} required className="note-ta" />
+                        <div className="note-edit-btns">
+                          <button type="submit" className="btn btn-save">Save</button>
+                          <button type="button" className="btn btn-cancel" onClick={() => setEditingNote(null)}>Cancel</button>
+                        </div>
+                      </form>
+                    ) : (
+                      <div className="note-text">{n.note}</div>
+                    )}
+                  </div>
+                  <div className="note-meta">
+                    <span className="note-date">{n.created_at ? n.created_at.substring(0, 10) : ''}</span>
+                    <div className="note-act">
+                      <button type="button" className="btn btn-edit" onClick={() => setEditingNote(editingNote === n.id ? null : n.id)} title="Edit">✎</button>
+                      <form method="POST" action={"/dashboard/me/note/" + n.id + "/delete"} style={{ display:'inline' }} onSubmit={e => { if (!window.confirm('Delete this note?')) e.preventDefault() }}>
+                        <button type="submit" className="btn btn-del" title="Delete">🗑</button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              )) : <div className="empty">No notes yet.<br /><small>Use the form below to add one</small></div>}
+            </div>
+            <div className="note-add-form">
+              <form onSubmit={async e => { e.preventDefault(); const f = new FormData(e.target); await post('/dashboard/me/note/add', { note: f.get('note') }); e.target.reset() }}>
+                <textarea name="note" placeholder="Write a new note..." required></textarea>
+                <button type="submit" className="btn btn-add">+ Add Note</button>
+              </form>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div className="ftr">ClawMeet Bot &middot; My Personal Workspace &middot; Data is private to you</div>
+    </div>
   )
 }

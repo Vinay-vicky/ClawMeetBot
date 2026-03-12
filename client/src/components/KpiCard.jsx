@@ -1,24 +1,25 @@
-export function KpiCard({ label, value, colorClass = 'text-accent' }) {
+export function KpiCard({ label, value, style }) {
   return (
-    <div className="kpi">
-      <div className={`text-3xl font-bold ${colorClass}`}>{value}</div>
-      <div className="text-[10px] text-muted uppercase tracking-wide mt-1">{label}</div>
+    <div className="sc" style={style}>
+      <div className="val">{value}</div>
+      <div className="lbl">{label}</div>
     </div>
   )
 }
 
 export function Spinner() {
   return (
-    <div className="flex items-center justify-center h-40 text-muted text-sm">
-      <span className="animate-pulse">Loading…</span>
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'60px' }}>
+      <div style={{ width:32, height:32, border:'3px solid #30363d', borderTop:'3px solid #58a6ff', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />
+      <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
     </div>
   )
 }
 
 export function ErrorBox({ message }) {
   return (
-    <div className="bg-red-900/30 border border-red-400/40 rounded-lg p-4 text-red-400 text-sm">
-      ⚠️ {message}
+    <div style={{ background:'#2d1117', border:'1px solid #f85149', color:'#f85149', padding:'14px 16px', borderRadius:8, margin:'20px 0', fontSize:13 }}>
+      Error: {message}
     </div>
   )
 }
