@@ -307,6 +307,13 @@ initDb().then(() => {
       { command: "intelligence",  description: "Advanced meeting analytics" },
       { command: "recordings",    description: "Find a meeting recording" },
       { command: "attendance",    description: "View or record meeting attendance" },
+      { command: "mytask",        description: "Add a private personal task" },
+      { command: "mytasks",       description: "List your personal tasks (private)" },
+      { command: "mydonetask",    description: "Mark a personal task done (/mydonetask #id)" },
+      { command: "mydeltask",     description: "Delete a personal task (/mydeltask #id)" },
+      { command: "note",          description: "Save a private note" },
+      { command: "mynotes",       description: "List your personal notes (private)" },
+      { command: "mydelnote",     description: "Delete a personal note (/mydelnote #id)" },
       { command: "cancel",        description: "Abort active wizard" },
       { command: "help",          description: "Show all commands" },
     ])

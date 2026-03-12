@@ -66,6 +66,22 @@ async function initDb() {
       email      TEXT NOT NULL UNIQUE,
       created_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS personal_tasks (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      telegram_id TEXT    NOT NULL,
+      task        TEXT    NOT NULL,
+      deadline    TEXT    DEFAULT '',
+      done        INTEGER DEFAULT 0,
+      created_at  TEXT    DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS personal_notes (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      telegram_id TEXT NOT NULL,
+      note        TEXT NOT NULL,
+      created_at  TEXT DEFAULT (datetime('now'))
+    );
   `);
   logger.info("Database ready" + (process.env.TURSO_DATABASE_URL ? " (Turso cloud)" : " (local SQLite)"));
 }
@@ -355,8 +371,65 @@ async function getMeetingAnalytics() {
   };
 }
 
+// ── Personal Tasks ────────────────────────────────────────────────────────────
+
+async function addPersonalTask(telegramId, task, deadline) {
+  await db.execute({
+    sql: "INSERT INTO personal_tasks (telegram_id, task, deadline) VALUES (?, ?, ?)",
+    args: [String(telegramId), task.trim(), deadline || ""],
+  });
+}
+
+async function getPersonalTasks(telegramId) {
+  const res = await db.execute({
+    sql: "SELECT * FROM personal_tasks WHERE telegram_id = ? AND done = 0 ORDER BY created_at DESC",
+    args: [String(telegramId)],
+  });
+  return res.rows;
+}
+
+async function donePersonalTask(id, telegramId) {
+  const res = await db.execute({
+    sql: "UPDATE personal_tasks SET done = 1 WHERE id = ? AND telegram_id = ?",
+    args: [id, String(telegramId)],
+  });
+  return res.rowsAffected;
+}
+
+async function deletePersonalTask(id, telegramId) {
+  const res = await db.execute({
+    sql: "DELETE FROM personal_tasks WHERE id = ? AND telegram_id = ?",
+    args: [id, String(telegramId)],
+  });
+  return res.rowsAffected;
+}
+
+// ── Personal Notes ────────────────────────────────────────────────────────────
+
+async function addPersonalNote(telegramId, note) {
+  await db.execute({
+    sql: "INSERT INTO personal_notes (telegram_id, note) VALUES (?, ?)",
+    args: [String(telegramId), note.trim()],
+  });
+}
+
+async function getPersonalNotes(telegramId, limit = 20) {
+  const res = await db.execute({
+    sql: "SELECT * FROM personal_notes WHERE telegram_id = ? ORDER BY created_at DESC LIMIT ?",
+    args: [String(telegramId), limit],
+  });
+  return res.rows;
+}
+
+async function deletePersonalNote(id, telegramId) {
+  const res = await db.execute({
+    sql: "DELETE FROM personal_notes WHERE id = ? AND telegram_id = ?",
+    args: [id, String(telegramId)],
+  });
+  return res.rowsAffected;
+}
+
 module.exports = {
-  initDb,
   saveMeeting, hasReminderBeenSent, markReminderSent, saveSummary,
   getRecentMeetings, saveTask, getPendingTasks, markTaskDone,
   getMeetingByKeyword, getTasksByPerson,
@@ -365,5 +438,8 @@ module.exports = {
   saveAttendance, getAttendance,
   addTeamMember, getAllMembers, removeMemberByName,
   getMeetingAnalytics,
+  // Personal workspace
+  addPersonalTask, getPersonalTasks, donePersonalTask, deletePersonalTask,
+  addPersonalNote, getPersonalNotes, deletePersonalNote,
 };
 

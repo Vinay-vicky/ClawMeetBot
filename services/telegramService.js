@@ -3,7 +3,9 @@ const logger = require("../utils/logger");
 const { getRecentMeetings, getPendingTasks, markTaskDone, getMeetingByKeyword, getTasksByPerson,
         saveTask, getMeetingStats, getTaskStats, addMeetingNote, getNotesByMeetingId,
         searchTasks, clearDoneTasks, editTask, getTaskById, saveAttendance, getAttendance,
-        addTeamMember, getAllMembers, removeMemberByName, getMeetingAnalytics } = require("./dbService");
+        addTeamMember, getAllMembers, removeMemberByName, getMeetingAnalytics,
+        addPersonalTask, getPersonalTasks, donePersonalTask, deletePersonalTask,
+        addPersonalNote, getPersonalNotes, deletePersonalNote } = require("./dbService");
 const { getScheduledMeetings, createTeamsMeeting, deleteCalendarEvent, getMeetingRecordings } = require("./calendarService");
 const { parseNaturalLanguageCommand } = require("./aiSummaryService");
 const { convertPdf, cleanup } = require("./pdfLLMService");
@@ -1566,6 +1568,129 @@ bot.on("message", async (msg) => {
   }
 
   logger.info(`[${msg.chat.type}] ${msg.from.username || msg.from.first_name}: ${text}`);
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PERSONAL WORKSPACE
+// ══════════════════════════════════════════════════════════════════════════════
+
+// /mytask <text> [| deadline] — save a private task
+bot.onText(/\/mytask(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const telegramId = msg.from.id;
+  const input = match && match[1] ? match[1].trim() : null;
+  if (!input) {
+    return bot.sendMessage(chatId,
+      "📝 <b>Add a personal task:</b>\n<code>/mytask Task text | optional deadline</code>\n\nExamples:\n• <code>/mytask Review proposal</code>\n• <code>/mytask Submit report | 2026-03-15</code>",
+      { parse_mode: "HTML" });
+  }
+  const parts = input.split("|");
+  const task = parts[0].trim();
+  const deadline = parts[1] ? parts[1].trim() : "";
+  await addPersonalTask(telegramId, task, deadline);
+  bot.sendMessage(chatId,
+    `✅ <b>Personal task saved</b> 🔒\n\n📋 ${task}${deadline ? `\n📅 Due: <b>${deadline}</b>` : ""}\n\n<i>Only you can see this. Use /mytasks to view all.</i>`,
+    { parse_mode: "HTML" });
+});
+
+// /mytasks — list your pending personal tasks
+bot.onText(/\/mytasks/, async (msg) => {
+  const chatId = msg.chat.id;
+  const telegramId = msg.from.id;
+  try {
+    const tasks = await getPersonalTasks(telegramId);
+    if (!tasks.length) {
+      return bot.sendMessage(chatId,
+        "📋 <b>My Tasks</b> 🔒\n\nNo pending personal tasks.\n\nAdd one with /mytask", { parse_mode: "HTML" });
+    }
+    const lines = tasks.map((t, i) =>
+      `${i + 1}. ${t.task}${t.deadline ? ` — 📅 <i>${t.deadline}</i>` : ""} <code>[#${t.id}]</code>`
+    );
+    bot.sendMessage(chatId,
+      `📋 <b>My Tasks</b> 🔒  (${tasks.length} pending)\n\n${lines.join("\n")}\n\n✅ Mark done: <code>/mydonetask #id</code>\n🗑 Delete: <code>/mydeltask #id</code>`,
+      { parse_mode: "HTML" });
+  } catch (err) {
+    logger.error("/mytasks error:", err);
+    bot.sendMessage(chatId, "❌ Could not load personal tasks.");
+  }
+});
+
+// /mydonetask <id> — mark a personal task done
+bot.onText(/\/mydonetask\s+#?(\d+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const telegramId = msg.from.id;
+  const id = parseInt(match[1], 10);
+  const affected = await donePersonalTask(id, telegramId);
+  if (affected) {
+    bot.sendMessage(chatId, `✅ Personal task <b>#${id}</b> marked done.`, { parse_mode: "HTML" });
+  } else {
+    bot.sendMessage(chatId, `❌ Task #${id} not found or doesn't belong to you.`);
+  }
+});
+
+// /mydeltask <id> — delete a personal task
+bot.onText(/\/mydeltask\s+#?(\d+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const telegramId = msg.from.id;
+  const id = parseInt(match[1], 10);
+  const affected = await deletePersonalTask(id, telegramId);
+  if (affected) {
+    bot.sendMessage(chatId, `🗑 Personal task <b>#${id}</b> deleted.`, { parse_mode: "HTML" });
+  } else {
+    bot.sendMessage(chatId, `❌ Task #${id} not found or doesn't belong to you.`);
+  }
+});
+
+// /note <text> — save a private note
+bot.onText(/\/note(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const telegramId = msg.from.id;
+  const input = match && match[1] ? match[1].trim() : null;
+  if (!input) {
+    return bot.sendMessage(chatId,
+      "🗒 <b>Save a personal note:</b>\n<code>/note Your note text here</code>\n\nExample:\n• <code>/note AI automation idea for onboarding workflow</code>",
+      { parse_mode: "HTML" });
+  }
+  await addPersonalNote(telegramId, input);
+  bot.sendMessage(chatId,
+    `🗒 <b>Note saved</b> 🔒\n\n"${input}"\n\n<i>Only you can see this. Use /mynotes to view all.</i>`,
+    { parse_mode: "HTML" });
+});
+
+// /mynotes — list your personal notes
+bot.onText(/\/mynotes/, async (msg) => {
+  const chatId = msg.chat.id;
+  const telegramId = msg.from.id;
+  try {
+    const notes = await getPersonalNotes(telegramId);
+    if (!notes.length) {
+      return bot.sendMessage(chatId,
+        "🗒 <b>My Notes</b> 🔒\n\nNo notes saved yet.\n\nAdd one with /note", { parse_mode: "HTML" });
+    }
+    const lines = notes.map((n, i) => {
+      const date = n.created_at ? n.created_at.substring(0, 10) : "";
+      return `${i + 1}. ${n.note}${date ? ` <i>(${date})</i>` : ""} <code>[#${n.id}]</code>`;
+    });
+    bot.sendMessage(chatId,
+      `🗒 <b>My Notes</b> 🔒  (${notes.length})\n\n${lines.join("\n\n")}\n\n🗑 Delete: <code>/mydelnote #id</code>`,
+      { parse_mode: "HTML" });
+  } catch (err) {
+    logger.error("/mynotes error:", err);
+    bot.sendMessage(chatId, "❌ Could not load notes.");
+  }
+});
+
+// /mydelnote <id> — delete a personal note
+bot.onText(/\/mydelnote\s+#?(\d+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const telegramId = msg.from.id;
+  const id = parseInt(match[1], 10);
+  const affected = await deletePersonalNote(id, telegramId);
+  if (affected) {
+    bot.sendMessage(chatId, `🗑 Note <b>#${id}</b> deleted.`, { parse_mode: "HTML" });
+  } else {
+    bot.sendMessage(chatId, `❌ Note #${id} not found or doesn't belong to you.`);
+  }
 });
 
 bot.on("polling_error", (err) => logger.error("Polling error:", err));
