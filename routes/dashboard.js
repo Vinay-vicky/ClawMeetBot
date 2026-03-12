@@ -323,28 +323,8 @@ tr:hover td{background:#1c2128}
   </p>
 </div>
 
-<!-- â•â•â• API REFERENCE â•â•â• -->
-<div class="fc" style="border-color:#30363d;margin-top:16px">
-  <h2>ðŸ”Œ REST API Endpoints</h2>
-  <table>
-    <thead><tr><th>Method</th><th>Endpoint</th><th>Description</th></tr></thead>
-    <tbody>
-      <tr><td><span class="badge g">GET</span></td><td><code>/api/tasks</code></td><td>All pending team tasks</td></tr>
-      <tr><td><span class="badge g">POST</span></td><td><code>/api/tasks</code></td><td>Create team task <code>{ person, task, deadline }</code></td></tr>
-      <tr><td><span class="badge" style="background:#1a3a5c;color:#58a6ff">PATCH</span></td><td><code>/api/tasks/:id/done</code></td><td>Mark team task done</td></tr>
-      <tr><td><span class="badge g">GET</span></td><td><code>/api/tasks/personal/:telegramId</code></td><td>Personal tasks for a user</td></tr>
-      <tr><td><span class="badge g">GET</span></td><td><code>/api/notes/meeting/:meetingId</code></td><td>Meeting notes</td></tr>
-      <tr><td><span class="badge g">GET</span></td><td><code>/api/notes/personal/:telegramId</code></td><td>Personal notes for a user</td></tr>
-      <tr><td><span class="badge g">GET</span></td><td><code>/api/notes/transcript/:meetingId</code></td><td>Meeting transcripts</td></tr>
-      <tr><td><span class="badge g">GET</span></td><td><code>/api/auth/user/:telegramId</code></td><td>User profile</td></tr>
-      <tr><td><span class="badge g">POST</span></td><td><code>/api/auth/link-token</code></td><td>Generate dashboard link token</td></tr>
-    </tbody>
-  </table>
-  <p style="font-size:11px;color:#484f58;margin-top:8px">All endpoints require <code>?token=DASHBOARD_TOKEN</code> or <code>Authorization: Bearer TOKEN</code> header when DASHBOARD_TOKEN is set.</p>
-</div>
 
-</div>
-<div class="ftr">ClawMeet Bot &bull; Microsoft Teams + Gemini AI &bull; Node.js &bull; <a href="https://github.com/Vinay-vicky/ClawMeetBot" target="_blank" style="color:#58a6ff;text-decoration:none">GitHub</a></div>
+</div><div class="ftr">ClawMeet Bot &bull; Microsoft Teams + Gemini AI &bull; Node.js &bull; <a href="https://github.com/Vinay-vicky/ClawMeetBot" target="_blank" style="color:#58a6ff;text-decoration:none">GitHub</a> &bull; <a href="/dashboard/developer" style="color:#484f58;text-decoration:none;font-size:10px">&#x1F527; Developer API</a></div>
 
 <script>
 // â”€â”€ Chart.js charts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -790,6 +770,130 @@ new Chart(document.getElementById('dayChart'), {
   }
 });
 <\/script>
+</body></html>`;
+}
+
+
+// ── Developer API page ───────────────────────────────────────────────────────
+router.get("/developer", authCheck, (req, res) => {
+  res.send(buildDevHtml());
+});
+
+function buildDevHtml() {
+  const now = new Date().toLocaleString("en-IN", {
+    timeZone: process.env.TIMEZONE || "Asia/Kolkata",
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true,
+  });
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Developer API &#x2014; ClawMeet Bot</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e1e4e8;min-height:100vh}
+.hdr{background:#161b22;border-bottom:1px solid #30363d;padding:16px 28px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.hdr h1{font-size:18px;font-weight:700;color:#58a6ff}
+.hdr .sub{font-size:11px;color:#8b949e;margin-top:3px}
+.hdr-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.btn{background:#21262d;border:1px solid #30363d;color:#58a6ff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;white-space:nowrap}
+.btn:hover{background:#30363d}
+.main{padding:26px 28px;max-width:960px;margin:0 auto}
+.page-title{font-size:22px;font-weight:700;color:#c9d1d9;margin-bottom:4px}
+.page-sub{font-size:12px;color:#8b949e;margin-bottom:28px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:24px;margin-bottom:24px}
+.card h2{font-size:13px;font-weight:600;color:#8b949e;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid #21262d;text-transform:uppercase;letter-spacing:.5px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;color:#8b949e;font-weight:500;padding:7px 10px;border-bottom:1px solid #21262d}
+td{padding:8px 10px;border-bottom:1px solid #0d1117;color:#c9d1d9;vertical-align:middle}
+tr:hover td{background:#1c2128}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;font-family:monospace}
+.badge-get{background:#1a4731;color:#3fb950}
+.badge-post{background:#1a3a5c;color:#58a6ff}
+.badge-patch{background:#3d2f00;color:#d29922}
+code{background:#0d1117;border:1px solid #30363d;padding:2px 7px;border-radius:4px;font-size:11px;font-family:monospace;color:#e1e4e8}
+.info-box{background:#0d1117;border:1px solid #1f6feb;border-radius:8px;padding:16px 18px;margin-bottom:20px;font-size:12px;color:#8b949e;line-height:1.8}
+.info-box b{color:#58a6ff}
+.warn-box{background:#1c1600;border:1px solid #d29922;border-radius:8px;padding:14px 18px;margin-bottom:20px;font-size:12px;color:#d29922;line-height:1.8}
+.tag{display:inline-block;background:#21262d;border:1px solid #30363d;border-radius:4px;padding:1px 6px;font-size:10px;color:#8b949e;margin-left:6px;font-family:monospace}
+.chips{display:flex;gap:10px;flex-wrap:wrap}
+.chip{background:#21262d;border:1px solid #30363d;border-radius:6px;padding:6px 14px;font-size:12px;color:#c9d1d9}
+.ftr{text-align:center;padding:16px;color:#484f58;font-size:11px;border-top:1px solid #21262d;margin-top:8px}
+@media(max-width:600px){.main{padding:14px 12px}.hdr{padding:12px 14px}}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <div><h1>&#x1F527; Developer API</h1><div class="sub">ClawMeet Bot REST Reference &bull; ${esc(now)}</div></div>
+  <div class="hdr-right">
+    <a href="/dashboard/" class="btn">&#x1F3E0; Team Dashboard</a>
+    <a href="/dashboard/analytics" class="btn">&#x1F4CA; Analytics</a>
+  </div>
+</div>
+<div class="main">
+<div class="page-title">&#x1F527; REST API Reference</div>
+<div class="page-sub">For developers, integrations, automation &amp; external services &mdash; not intended for regular users</div>
+
+<div class="info-box">
+  <b>Authentication</b><br>
+  All endpoints require either:<br>
+  &bull; Query param: <code>?token=DASHBOARD_TOKEN</code><br>
+  &bull; Header: <code>Authorization: Bearer DASHBOARD_TOKEN</code>
+</div>
+
+<div class="warn-box">
+  &#x26A0; This page is intended for developers and admins only. Do not share links to this page with regular users.
+</div>
+
+<div class="card">
+  <h2>&#x2705; Tasks</h2>
+  <table>
+    <thead><tr><th style="width:80px">Method</th><th style="width:300px">Endpoint</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/tasks</code></td><td>All pending team tasks</td></tr>
+      <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/tasks</code></td><td>Create team task &mdash; body: <code>{ person, task, deadline }</code></td></tr>
+      <tr><td><span class="badge badge-patch">PATCH</span></td><td><code>/api/tasks/:id/done</code></td><td>Mark team task as done</td></tr>
+      <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/tasks/personal/:telegramId</code></td><td>Personal tasks for a user <span class="tag">private</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>&#x1F4DD; Notes &amp; Transcripts</h2>
+  <table>
+    <thead><tr><th style="width:80px">Method</th><th style="width:300px">Endpoint</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/notes/meeting/:meetingId</code></td><td>Notes for a meeting</td></tr>
+      <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/notes/personal/:telegramId</code></td><td>Personal notes for a user <span class="tag">private</span></td></tr>
+      <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/notes/transcript/:meetingId</code></td><td>Full transcript for a meeting</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>&#x1F464; Auth &amp; Users</h2>
+  <table>
+    <thead><tr><th style="width:80px">Method</th><th style="width:300px">Endpoint</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/auth/user/:telegramId</code></td><td>Fetch user profile</td></tr>
+      <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/auth/link-token</code></td><td>Generate a dashboard login link token</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>&#x1F4E1; Works With</h2>
+  <p style="font-size:12px;color:#8b949e;margin-bottom:14px">These endpoints can be used with automation tools and custom integrations:</p>
+  <div class="chips">
+    <span class="chip">&#x26A1; Zapier</span>
+    <span class="chip">&#x1F9F6; n8n</span>
+    <span class="chip">&#x1F504; Make.com</span>
+    <span class="chip">&#x1F916; Custom AI agents</span>
+    <span class="chip">&#x1F4CB; Postman / curl</span>
+  </div>
+</div>
+
+</div>
+<div class="ftr">ClawMeet Bot &bull; <a href="/dashboard/" style="color:#58a6ff;text-decoration:none">&#x2190; Back to Dashboard</a></div>
 </body></html>`;
 }
 
