@@ -1633,6 +1633,36 @@ bot.onText(/\/teamtasks/, async (msg) => {
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// PRIVATE MESSAGE HELPER — sends sensitive replies via DM, not in group chat
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Send a message privately (DM). If the command was used in a group:
+ *  - Try to DM the user
+ *  - Post a brief notice in the group
+ *  - If DM fails (user never started the bot), show a "please start the bot" notice instead
+ */
+async function sendPrivate(userId, groupChatId, firstName, text, opts = {}) {
+  const isGroup = String(groupChatId) !== String(userId);
+  if (!isGroup) {
+    return bot.sendMessage(userId, text, opts);
+  }
+  try {
+    await bot.sendMessage(userId, text, opts);
+    bot.sendMessage(groupChatId,
+      `🔐 <b>${firstName}</b>, I've sent your details privately — check your DM with me.`,
+      { parse_mode: "HTML" });
+  } catch (_) {
+    const botUsername = process.env.TELEGRAM_BOT_USERNAME || "ClawMeetBot";
+    bot.sendMessage(groupChatId,
+      `⚠️ <b>${firstName}</b>, I can't message you privately yet.\n` +
+      `Please start the bot first and then run the command again:\n` +
+      `<a href="https://t.me/${botUsername}">t.me/${botUsername}</a>`,
+      { parse_mode: "HTML", disable_web_page_preview: true });
+  }
+}
+
 // /myprofile — show your personal profile and dashboard link
 bot.onText(/\/myprofile/, async (msg) => {
   const chatId = msg.chat.id;
@@ -1641,13 +1671,15 @@ bot.onText(/\/myprofile/, async (msg) => {
     await upsertUser(from.id, from.first_name + (from.last_name ? " " + from.last_name : ""), from.username);
     const token = await generateLinkToken(from.id);
     const base = process.env.RENDER_EXTERNAL_URL || "http://localhost:" + (process.env.PORT || 3000);
-    bot.sendMessage(chatId,
+    const loginUrl = `${base}/dashboard/login?token=${encodeURIComponent(token)}`;
+    const text =
       `👤 <b>My Profile</b>\n\n` +
       `🙋 ${from.first_name}${from.username ? ` (@${from.username})` : ""}\n` +
       `🆔 Telegram ID: <code>${from.id}</code>\n\n` +
       `🔑 <b>Dashboard Login Token:</b>\n<code>${token}</code>\n\n` +
-      `🔗 <b>Login here:</b>\n<a href="${base}/dashboard/login">${base}/dashboard/login</a>\n\n` +
-      `<i>Paste the token above on the login page to access your personal workspace.</i>`,
+      `🔗 <b>One-click login:</b>\n<a href="${loginUrl}">${base}/dashboard/login</a>\n\n` +
+      `<i>Tap the link above to go directly to your personal dashboard.</i>`;
+    await sendPrivate(from.id, chatId, from.first_name, text,
       { parse_mode: "HTML", disable_web_page_preview: true });
   } catch (err) {
     logger.error("/myprofile error:", err);
@@ -1662,7 +1694,8 @@ bot.onText(/\/myprofile/, async (msg) => {
 // /mytask <text> [| deadline] — save a private task
 bot.onText(/\/mytask(?:\s+(.+))?/, async (msg, match) => {
   const chatId = msg.chat.id;
-  const telegramId = msg.from.id;
+  const from = msg.from;
+  const telegramId = from.id;
   const input = match && match[1] ? match[1].trim() : null;
   if (!input) {
     return bot.sendMessage(chatId,
@@ -1673,7 +1706,7 @@ bot.onText(/\/mytask(?:\s+(.+))?/, async (msg, match) => {
   const task = parts[0].trim();
   const deadline = parts[1] ? parts[1].trim() : "";
   await addPersonalTask(telegramId, task, deadline);
-  bot.sendMessage(chatId,
+  await sendPrivate(telegramId, chatId, from.first_name,
     `✅ <b>Personal task saved</b> 🔒\n\n📋 ${task}${deadline ? `\n📅 Due: <b>${deadline}</b>` : ""}\n\n<i>Only you can see this. Use /mytasks to view all.</i>`,
     { parse_mode: "HTML" });
 });
@@ -1681,19 +1714,16 @@ bot.onText(/\/mytask(?:\s+(.+))?/, async (msg, match) => {
 // /mytasks — list your pending personal tasks
 bot.onText(/\/mytasks/, async (msg) => {
   const chatId = msg.chat.id;
-  const telegramId = msg.from.id;
+  const from = msg.from;
+  const telegramId = from.id;
   try {
     const tasks = await getPersonalTasks(telegramId);
-    if (!tasks.length) {
-      return bot.sendMessage(chatId,
-        "📋 <b>My Tasks</b> 🔒\n\nNo pending personal tasks.\n\nAdd one with /mytask", { parse_mode: "HTML" });
-    }
-    const lines = tasks.map((t, i) =>
-      `${i + 1}. ${t.task}${t.deadline ? ` — 📅 <i>${t.deadline}</i>` : ""} <code>[#${t.id}]</code>`
-    );
-    bot.sendMessage(chatId,
-      `📋 <b>My Tasks</b> 🔒  (${tasks.length} pending)\n\n${lines.join("\n")}\n\n✅ Mark done: <code>/mydonetask #id</code>\n🗑 Delete: <code>/mydeltask #id</code>`,
-      { parse_mode: "HTML" });
+    const text = !tasks.length
+      ? "📋 <b>My Tasks</b> 🔒\n\nNo pending personal tasks.\n\nAdd one with /mytask"
+      : `📋 <b>My Tasks</b> 🔒  (${tasks.length} pending)\n\n` +
+        tasks.map((t, i) => `${i + 1}. ${t.task}${t.deadline ? ` — 📅 <i>${t.deadline}</i>` : ""} <code>[#${t.id}]</code>`).join("\n") +
+        "\n\n✅ Mark done: <code>/mydonetask #id</code>\n🗑 Delete: <code>/mydeltask #id</code>";
+    await sendPrivate(telegramId, chatId, from.first_name, text, { parse_mode: "HTML" });
   } catch (err) {
     logger.error("/mytasks error:", err);
     bot.sendMessage(chatId, "❌ Could not load personal tasks.");
@@ -1703,33 +1733,32 @@ bot.onText(/\/mytasks/, async (msg) => {
 // /mydonetask <id> — mark a personal task done
 bot.onText(/\/mydonetask\s+#?(\d+)/, async (msg, match) => {
   const chatId = msg.chat.id;
-  const telegramId = msg.from.id;
+  const from = msg.from;
   const id = parseInt(match[1], 10);
-  const affected = await donePersonalTask(id, telegramId);
-  if (affected) {
-    bot.sendMessage(chatId, `✅ Personal task <b>#${id}</b> marked done.`, { parse_mode: "HTML" });
-  } else {
-    bot.sendMessage(chatId, `❌ Task #${id} not found or doesn't belong to you.`);
-  }
+  const affected = await donePersonalTask(id, from.id);
+  const text = affected
+    ? `✅ Personal task <b>#${id}</b> marked done.`
+    : `❌ Task #${id} not found or doesn't belong to you.`;
+  await sendPrivate(from.id, chatId, from.first_name, text, { parse_mode: "HTML" });
 });
 
 // /mydeltask <id> — delete a personal task
 bot.onText(/\/mydeltask\s+#?(\d+)/, async (msg, match) => {
   const chatId = msg.chat.id;
-  const telegramId = msg.from.id;
+  const from = msg.from;
   const id = parseInt(match[1], 10);
-  const affected = await deletePersonalTask(id, telegramId);
-  if (affected) {
-    bot.sendMessage(chatId, `🗑 Personal task <b>#${id}</b> deleted.`, { parse_mode: "HTML" });
-  } else {
-    bot.sendMessage(chatId, `❌ Task #${id} not found or doesn't belong to you.`);
-  }
+  const affected = await deletePersonalTask(id, from.id);
+  const text = affected
+    ? `🗑 Personal task <b>#${id}</b> deleted.`
+    : `❌ Task #${id} not found or doesn't belong to you.`;
+  await sendPrivate(from.id, chatId, from.first_name, text, { parse_mode: "HTML" });
 });
 
 // /note <text> — save a private note
 bot.onText(/\/note(?:\s+(.+))?/, async (msg, match) => {
   const chatId = msg.chat.id;
-  const telegramId = msg.from.id;
+  const from = msg.from;
+  const telegramId = from.id;
   const input = match && match[1] ? match[1].trim() : null;
   if (!input) {
     return bot.sendMessage(chatId,
@@ -1739,7 +1768,7 @@ bot.onText(/\/note(?:\s+(.+))?/, async (msg, match) => {
   await addPersonalNote(telegramId, input);
   // Auto-index into RAG knowledge base (non-blocking)
   indexText(input, "personal_note", String(telegramId), `User ${telegramId} note`).catch(() => {});
-  bot.sendMessage(chatId,
+  await sendPrivate(telegramId, chatId, from.first_name,
     `🗒 <b>Note saved</b> 🔒\n\n"${input}"\n\n<i>Only you can see this. Use /mynotes to view all.</i>`,
     { parse_mode: "HTML" });
 });
@@ -1747,20 +1776,19 @@ bot.onText(/\/note(?:\s+(.+))?/, async (msg, match) => {
 // /mynotes — list your personal notes
 bot.onText(/\/mynotes/, async (msg) => {
   const chatId = msg.chat.id;
-  const telegramId = msg.from.id;
+  const from = msg.from;
+  const telegramId = from.id;
   try {
     const notes = await getPersonalNotes(telegramId);
-    if (!notes.length) {
-      return bot.sendMessage(chatId,
-        "🗒 <b>My Notes</b> 🔒\n\nNo notes saved yet.\n\nAdd one with /note", { parse_mode: "HTML" });
-    }
-    const lines = notes.map((n, i) => {
-      const date = n.created_at ? n.created_at.substring(0, 10) : "";
-      return `${i + 1}. ${n.note}${date ? ` <i>(${date})</i>` : ""} <code>[#${n.id}]</code>`;
-    });
-    bot.sendMessage(chatId,
-      `🗒 <b>My Notes</b> 🔒  (${notes.length})\n\n${lines.join("\n\n")}\n\n🗑 Delete: <code>/mydelnote #id</code>`,
-      { parse_mode: "HTML" });
+    const text = !notes.length
+      ? "🗒 <b>My Notes</b> 🔒\n\nNo notes saved yet.\n\nAdd one with /note"
+      : `🗒 <b>My Notes</b> 🔒  (${notes.length})\n\n` +
+        notes.map((n, i) => {
+          const date = n.created_at ? n.created_at.substring(0, 10) : "";
+          return `${i + 1}. ${n.note}${date ? ` <i>(${date})</i>` : ""} <code>[#${n.id}]</code>`;
+        }).join("\n\n") +
+        "\n\n🗑 Delete: <code>/mydelnote #id</code>";
+    await sendPrivate(telegramId, chatId, from.first_name, text, { parse_mode: "HTML" });
   } catch (err) {
     logger.error("/mynotes error:", err);
     bot.sendMessage(chatId, "❌ Could not load notes.");
@@ -1770,14 +1798,13 @@ bot.onText(/\/mynotes/, async (msg) => {
 // /mydelnote <id> — delete a personal note
 bot.onText(/\/mydelnote\s+#?(\d+)/, async (msg, match) => {
   const chatId = msg.chat.id;
-  const telegramId = msg.from.id;
+  const from = msg.from;
   const id = parseInt(match[1], 10);
-  const affected = await deletePersonalNote(id, telegramId);
-  if (affected) {
-    bot.sendMessage(chatId, `🗑 Note <b>#${id}</b> deleted.`, { parse_mode: "HTML" });
-  } else {
-    bot.sendMessage(chatId, `❌ Note #${id} not found or doesn't belong to you.`);
-  }
+  const affected = await deletePersonalNote(id, from.id);
+  const text = affected
+    ? `🗑 Note <b>#${id}</b> deleted.`
+    : `❌ Note #${id} not found or doesn't belong to you.`;
+  await sendPrivate(from.id, chatId, from.first_name, text, { parse_mode: "HTML" });
 });
 
 // ══════════════════════════════════════════════════════════════════════════════

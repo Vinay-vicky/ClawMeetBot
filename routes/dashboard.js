@@ -596,9 +596,21 @@ router.get("/public", async (req, res) => {
 // LOGIN / LOGOUT
 // ══════════════════════════════════════════════════════════════════════════════
 
-router.get("/login", (req, res) => {
+router.get("/login", async (req, res) => {
   const session = readSession(req);
   if (session) return res.redirect("/dashboard/me");
+  // One-click login via ?token=xxx (sent from Telegram DM)
+  const quickToken = (req.query.token || "").trim();
+  if (quickToken) {
+    try {
+      const user = await getUserByLinkToken(quickToken);
+      if (user) {
+        res.setHeader("Set-Cookie", createSessionCookie(user.telegram_id, user.name));
+        return res.redirect("/dashboard/me");
+      }
+    } catch (_) { /* fall through to form */ }
+    return res.send(buildLoginHtml({ error: "Invalid or expired login link. Get a new one via /myprofile in Telegram." }));
+  }
   res.send(buildLoginHtml({ error: req.query.error, msg: req.query.msg }));
 });
 
