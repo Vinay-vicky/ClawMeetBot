@@ -1325,7 +1325,7 @@ function toggleNoteEdit(id) {
 // Serve React dashboard UI build (SPA)
 const uiDist = path.join(__dirname, "../public/dashboard-ui");
 router.use("/ui", express.static(uiDist));
-router.get("/ui/*splat", (_req, res) => {
+router.get("/ui/*", (_req, res) => {
   const idx = path.join(uiDist, "index.html");
   res.sendFile(idx, err => {
     if (err) res.status(404).send("React build not found. Run: cd client && npm run build");
