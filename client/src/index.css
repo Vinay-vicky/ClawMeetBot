@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { @apply bg-base text-gray-200 antialiased; }
+  code { @apply font-mono text-xs bg-black/30 border border-border rounded px-1.5 py-0.5; }
+}
+
+@layer components {
+  .card { @apply bg-surface border border-border rounded-xl p-5; }
+  .btn  { @apply bg-[#21262d] border border-border text-accent text-xs px-3.5 py-1.5 rounded-md no-underline hover:bg-border transition-colors whitespace-nowrap; }
+  .badge-get   { @apply inline-block bg-green-900 text-green-400 text-[10px] font-bold font-mono px-2 py-0.5 rounded-full; }
+  .badge-post  { @apply inline-block bg-[#1a3a5c] text-accent text-[10px] font-bold font-mono px-2 py-0.5 rounded-full; }
+  .badge-patch { @apply inline-block bg-amber-900 text-amber-400 text-[10px] font-bold font-mono px-2 py-0.5 rounded-full; }
+  .badge-del   { @apply inline-block bg-red-900 text-red-400 text-[10px] font-bold font-mono px-2 py-0.5 rounded-full; }
+  .kpi { @apply bg-surface border border-border rounded-xl p-4; }
+  .section-title { @apply text-[11px] font-semibold text-muted uppercase tracking-widest border-b border-[#21262d] pb-2 mb-4; }
+}
+
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+}

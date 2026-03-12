@@ -1,6 +1,7 @@
 ﻿"use strict";
 const express = require("express");
 const crypto  = require("crypto");
+const path    = require("path");
 const router  = express.Router();
 const {
   getRecentMeetings, getPendingTasks, getMeetingStats, getTaskStats, getMeetingAnalytics,
@@ -48,6 +49,66 @@ router.get("/api", authCheck, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// React app: full team dashboard JSON
+router.get("/api/team", authCheck, async (req, res) => {
+  try {
+    const [meetings, tasks, meetStats, taskStats, analytics] = await Promise.all([
+      getRecentMeetings(20), getPendingTasks(), getMeetingStats(), getTaskStats(), getMeetingAnalytics(),
+    ]);
+    let todayMeetings = [];
+    try { todayMeetings = await getScheduledMeetings(-60, 1440); } catch (_) {}
+    const summaryCount      = meetings.filter(m => m.summary).length;
+    const aiCoverage        = meetings.length > 0 ? summaryCount / meetings.length : 0;
+    const activityScore     = Math.min(1, (meetStats.thisWeek ?? 0) / 5);
+    const productivityScore = Math.round(((analytics.completionRate ?? 0) / 100) * 40 + aiCoverage * 30 + activityScore * 30);
+    res.json({ meetings, tasks, meetStats, taskStats, analytics, todayMeetings, productivityScore, summaryCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// React app: public dashboard JSON (no auth required)
+router.get("/api/public", async (req, res) => {
+  try {
+    const [meetings, meetStats, taskStats, analytics] = await Promise.all([
+      getRecentMeetings(10), getMeetingStats(), getTaskStats(), getMeetingAnalytics(),
+    ]);
+    res.json({ meetings, meetStats, taskStats, analytics });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// React app: personal workspace JSON (session cookie required)
+router.get("/api/me", requireJsonSession, async (req, res) => {
+  const telegramId = req.session.tid;
+  try {
+    const [user, tasks, notes] = await Promise.all([
+      getUserByTelegramId(telegramId),
+      getPersonalTasks(telegramId),
+      getPersonalNotes(telegramId, 30),
+    ]);
+    res.json({ user: user || { name: req.session.name, telegram_id: telegramId }, tasks, notes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// React app: JSON login (returns JSON, not HTML redirect)
+router.post("/auth/login", express.urlencoded({ extended: false }), async (req, res) => {
+  const linkToken = (req.body.link_token || "").trim();
+  if (!linkToken) return res.status(400).json({ error: "Please enter your link token." });
+  try {
+    const user = await getUserByLinkToken(linkToken);
+    if (!user) return res.status(401).json({ error: "Invalid token. Check /myprofile in Telegram." });
+    res.setHeader("Set-Cookie", createSessionCookie(user.telegram_id, user.name));
+    res.json({ ok: true, name: user.name });
+  } catch (err) {
+    require("../utils/logger").error("React auth/login error:", err);
+    res.status(500).json({ error: "Login failed, please try again." });
+  }
+});
+
 
 // â”€â”€ Main route â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/", authCheck, async (req, res) => {
@@ -412,6 +473,14 @@ function readSession(req) {
 function requireSession(req, res, next) {
   const session = readSession(req);
   if (!session) return res.redirect("/dashboard/login?msg=Please+log+in+first");
+  req.session = session;
+  next();
+}
+
+// JSON-only variant — returns 401 JSON instead of redirecting (used by React API)
+function requireJsonSession(req, res, next) {
+  const session = readSession(req);
+  if (!session) return res.status(401).json({ error: "Not authenticated" });
   req.session = session;
   next();
 }
@@ -1253,5 +1322,14 @@ function toggleNoteEdit(id) {
 </body></html>`;
 }
 
+// Serve React dashboard UI build (SPA)
+const uiDist = path.join(__dirname, "../public/dashboard-ui");
+router.use("/ui", express.static(uiDist));
+router.get("/ui/*splat", (_req, res) => {
+  const idx = path.join(uiDist, "index.html");
+  res.sendFile(idx, err => {
+    if (err) res.status(404).send("React build not found. Run: cd client && npm run build");
+  });
+});
 module.exports = router;
 
