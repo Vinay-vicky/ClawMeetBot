@@ -738,7 +738,7 @@ new Chart(document.getElementById('donutChart'), {
 new Chart(document.getElementById('radarChart'), {
   type: 'radar',
   data: {
-    labels: ['Tasks &#x2705;', 'AI Coverage &#x1F916;', 'Activity &#x1F4C5;'],
+    labels: ['Tasks \u2705', 'AI Coverage \uD83E\uDD16', 'Activity \uD83D\uDCC5'],
     datasets: [{ data: ${radarData}, backgroundColor: 'rgba(88,166,255,0.15)', borderColor: blue2, borderWidth: 2, pointBackgroundColor: blue2 }]
   },
   options: {
