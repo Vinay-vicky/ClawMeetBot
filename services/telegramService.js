@@ -146,15 +146,22 @@ function sendToGroup(message) {
 }
 
 async function getTelegramProfilePhotoFileUrl(telegramId) {
-  const profilePhotos = await bot.getUserProfilePhotos(String(telegramId), { limit: 1 });
-  const photoSizes = profilePhotos?.photos?.[0];
-  if (!photoSizes || !photoSizes.length) return null;
+  try {
+    const numericId = Number(telegramId);
+    const userId = Number.isFinite(numericId) ? numericId : String(telegramId);
+    const profilePhotos = await bot.getUserProfilePhotos(userId, { limit: 1 });
+    const photoSizes = profilePhotos?.photos?.[0];
+    if (!photoSizes || !photoSizes.length) return null;
 
-  const bestPhoto = photoSizes[photoSizes.length - 1];
-  const file = await bot.getFile(bestPhoto.file_id);
-  if (!file?.file_path) return null;
+    const bestPhoto = photoSizes[photoSizes.length - 1];
+    const file = await bot.getFile(bestPhoto.file_id);
+    if (!file?.file_path) return null;
 
-  return `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+    return `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+  } catch (err) {
+    logger.warn(`Telegram profile photo lookup failed for ${telegramId}: ${err.message}`);
+    return null;
+  }
 }
 
 // /start — welcome message

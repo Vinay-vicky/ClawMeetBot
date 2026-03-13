@@ -111,6 +111,8 @@ export default function PersonalDashboard() {
   const [saveStatus, setSaveStatus] = useState({ saving: false, error: '', ok: '' })
   const [telegramPhotoUrl, setTelegramPhotoUrl] = useState('')
   const [telegramPhotoReady, setTelegramPhotoReady] = useState(false)
+  const [telegramPhotoLoading, setTelegramPhotoLoading] = useState(false)
+  const [telegramPhotoReloadKey, setTelegramPhotoReloadKey] = useState(0)
   const { search } = useLocation()
 
   const user = data?.user || null
@@ -139,13 +141,14 @@ export default function PersonalDashboard() {
     let objectUrl = ''
 
     async function loadTelegramPhoto() {
-      if (!user?.telegram_id) {
-        setTelegramPhotoReady(false)
-        setTelegramPhotoUrl('')
-        return
-      }
-
+      setTelegramPhotoLoading(true)
       try {
+        if (!user?.telegram_id) {
+          setTelegramPhotoReady(false)
+          setTelegramPhotoUrl('')
+          return
+        }
+
         const res = await fetch(backendUrl('/dashboard/api/me/telegram-photo'), {
           credentials: 'include',
           headers: { Accept: 'image/*', 'X-Requested-With': 'fetch' },
@@ -172,6 +175,8 @@ export default function PersonalDashboard() {
           setTelegramPhotoReady(false)
           setTelegramPhotoUrl('')
         }
+      } finally {
+        if (!cancelled) setTelegramPhotoLoading(false)
       }
     }
 
@@ -181,7 +186,7 @@ export default function PersonalDashboard() {
       cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [user?.telegram_id])
+  }, [user?.telegram_id, telegramPhotoReloadKey])
 
   const activePreset = useMemo(
     () => presetThemes.find(preset => matchesPreset(theme, avatarConfig, preset))?.name || '',
@@ -230,14 +235,19 @@ export default function PersonalDashboard() {
   function openProfileEditor() {
     setSaveStatus({ saving: false, error: '', ok: '' })
     setIsProfileEditorOpen(true)
+    setTelegramPhotoReloadKey((v) => v + 1)
   }
 
   function closeProfileEditor() {
     setIsProfileEditorOpen(false)
   }
 
-  function useTelegramPhoto() {
-    if (!telegramPhotoReady) return
+  async function useTelegramPhoto() {
+    if (!telegramPhotoReady) {
+      setTelegramPhotoReloadKey((v) => v + 1)
+      setSaveStatus({ saving: false, error: 'Telegram photo is not available yet. If it exists in Telegram, wait a moment and tap again.', ok: '' })
+      return
+    }
     setAvatarConfig((current) => ({ ...current, source: 'telegram' }))
     setSaveStatus({ saving: false, error: '', ok: '' })
   }
@@ -247,16 +257,42 @@ export default function PersonalDashboard() {
     setSaveStatus({ saving: false, error: '', ok: '' })
   }
 
-  function removeUploadedPhoto() {
+  async function removeUploadedPhoto() {
     if (!hasUploadedPhoto) return
-    setAvatarConfig((current) => ({
-      ...current,
-      source: 'custom',
-      imageData: '',
-      imageUrl: '',
-      imagePublicId: '',
-    }))
-    setSaveStatus({ saving: false, error: '', ok: 'Uploaded photo will be removed after saving' })
+
+    const localOnlyUpload = avatarConfig.source === 'upload' && avatarConfig.imageData && !avatarConfig.imageUrl && !avatarConfig.imagePublicId
+    if (localOnlyUpload) {
+      setAvatarConfig((current) => ({
+        ...current,
+        source: 'custom',
+        imageData: '',
+        imageUrl: '',
+        imagePublicId: '',
+      }))
+      setSaveStatus({ saving: false, error: '', ok: 'Uploaded photo removed' })
+      return
+    }
+
+    setSaveStatus({ saving: true, error: '', ok: '' })
+    try {
+      const res = await fetch(backendUrl('/dashboard/api/me/upload-photo'), {
+        method: 'DELETE',
+        headers: { Accept: 'application/json', 'X-Requested-With': 'fetch' },
+        credentials: 'include',
+      })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(payload.error || 'Failed to remove uploaded photo')
+
+      let parsed = null
+      if (payload?.user?.avatar_config) {
+        try { parsed = JSON.parse(payload.user.avatar_config) } catch { parsed = null }
+      }
+      setAvatarConfig(safeAvatar(parsed))
+      setSaveStatus({ saving: false, error: '', ok: 'Uploaded photo removed' })
+      refresh()
+    } catch (e) {
+      setSaveStatus({ saving: false, error: e.message || 'Failed to remove uploaded photo', ok: '' })
+    }
   }
 
   function onUploadProfilePhoto(event) {
@@ -386,9 +422,9 @@ export default function PersonalDashboard() {
                 type="button"
                 className={`btn ${avatarConfig.source === 'telegram' && telegramPhotoReady ? 'btn-save' : 'btn-cancel'}`}
                 onClick={useTelegramPhoto}
-                disabled={!telegramPhotoReady}
+                disabled={telegramPhotoLoading}
               >
-                Use Telegram Photo
+                {telegramPhotoLoading ? 'Checking Telegram...' : 'Use Telegram Photo'}
               </button>
               <button
                 type="button"

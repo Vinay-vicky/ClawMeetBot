@@ -335,6 +335,43 @@ router.post("/api/me/profile", requireJsonSession, express.json({ limit: "1mb" }
   }
 });
 
+router.delete("/api/me/upload-photo", requireJsonSession, async (req, res) => {
+  const telegramId = req.session.tid;
+  try {
+    const user = await getUserByTelegramId(telegramId);
+    const profileTheme = user?.profile_theme === "light" ? "light" : "dark";
+    const existingAvatar = safeParseAvatarConfig(user?.avatar_config) || {};
+    const existingUploadPublicId =
+      existingAvatar?.source === "upload" && typeof existingAvatar.imagePublicId === "string"
+        ? existingAvatar.imagePublicId
+        : "";
+
+    if (existingUploadPublicId) {
+      await deleteImageByPublicId(existingUploadPublicId);
+    }
+
+    const nextAvatar = {
+      shape: ["circle", "rounded", "square"].includes(existingAvatar.shape) ? existingAvatar.shape : "circle",
+      pattern: ["solid", "gradient", "ring"].includes(existingAvatar.pattern) ? existingAvatar.pattern : "gradient",
+      bg: typeof existingAvatar.bg === "string" ? existingAvatar.bg : "#f6d37a",
+      accent: typeof existingAvatar.accent === "string" ? existingAvatar.accent : "#e6b84e",
+      fg: typeof existingAvatar.fg === "string" ? existingAvatar.fg : "#1a1305",
+      symbol: typeof existingAvatar.symbol === "string" ? existingAvatar.symbol.trim().slice(0, 2).toUpperCase() : "",
+      source: "custom",
+      imageData: "",
+      imageUrl: "",
+      imagePublicId: "",
+    };
+
+    await updateUserProfileSettings(telegramId, profileTheme, JSON.stringify(nextAvatar));
+    const refreshedUser = await getUserByTelegramId(telegramId);
+    return res.json({ ok: true, user: refreshedUser });
+  } catch (err) {
+    logger.error("Remove uploaded profile photo error:", err);
+    return res.status(500).json({ error: "Failed to remove uploaded photo" });
+  }
+});
+
 router.get("/api/me/telegram-photo", requireJsonSession, async (req, res) => {
   try {
     const photoUrl = await getTelegramProfilePhotoFileUrl(req.session.tid);
