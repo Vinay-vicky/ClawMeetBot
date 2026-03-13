@@ -1,8 +1,10 @@
+import { Link, useLocation } from 'react-router-dom'
 import { useApi, fmtTime } from '../lib/utils.js'
 import { Spinner, ErrorBox } from '../components/KpiCard.jsx'
 
 export default function PublicView() {
   const { data, loading, error } = useApi('/dashboard/api/public')
+  const { search } = useLocation()
 
   if (loading) return <div className="main"><Spinner /></div>
   if (error)   return <div className="main"><ErrorBox message={error} /></div>
@@ -22,7 +24,7 @@ export default function PublicView() {
           <div className="sub">Public view &middot; {now}</div>
         </div>
         <div className="nav">
-          <a href="/dashboard/ui/login">🔐 My Dashboard</a>
+          <Link to={'/login' + search}>🔐 My Dashboard</Link>
         </div>
       </div>
 
@@ -86,9 +88,9 @@ export default function PublicView() {
         {/* Login CTA */}
         <div className="fc" style={{ textAlign:'center' }}>
           <p style={{ color:'#8b949e', fontSize:13, marginBottom:12 }}>Want to see your personal tasks and notes?</p>
-          <a href="/dashboard/ui/login" style={{ background:'#238636', color:'#fff', padding:'9px 22px', borderRadius:6, textDecoration:'none', fontSize:13 }}>
+          <Link to={'/login' + search} style={{ background:'#238636', color:'#fff', padding:'9px 22px', borderRadius:6, textDecoration:'none', fontSize:13, display:'inline-block' }}>
             🔐 Log in with Telegram Link Token
-          </a>
+          </Link>
         </div>
       </div>
 

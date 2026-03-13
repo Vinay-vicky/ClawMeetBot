@@ -1,6 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import Layout from '../components/Layout.jsx'
-import { withDashboardQuery } from '../lib/utils.js'
+import { backendUrl } from '../lib/utils.js'
 
 const endpoints = {
   '✅ Tasks': [
@@ -38,7 +37,7 @@ export default function DeveloperAPI() {
         <div className="hdr-right">
           <Link to={'/team' + search}      className="refresh">🏠 Team Dashboard</Link>
           <Link to={'/analytics' + search} className="refresh">📊 Analytics</Link>
-          <a href={withDashboardQuery('/dashboard/logout')} className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
+          <a href={backendUrl('/dashboard/logout')} className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
         </div>
       </div>
 

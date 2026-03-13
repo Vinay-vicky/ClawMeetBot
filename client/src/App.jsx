@@ -5,10 +5,11 @@ import Analytics from './pages/Analytics.jsx'
 import PersonalDashboard from './pages/PersonalDashboard.jsx'
 import PublicView from './pages/PublicView.jsx'
 import DeveloperAPI from './pages/DeveloperAPI.jsx'
+import { routerBasename } from './lib/config.js'
 
 export default function App() {
   return (
-    <BrowserRouter basename="/dashboard/ui">
+    <BrowserRouter basename={routerBasename}>
       <Routes>
         <Route path="/"          element={<Navigate to="/team" replace />} />
         <Route path="/login"     element={<Login />} />

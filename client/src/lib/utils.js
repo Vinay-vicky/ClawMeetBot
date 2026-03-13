@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { apiUrl, appUrl } from './config.js'
 
 export function getDashboardSearch() {
   if (typeof window === 'undefined') return ''
@@ -13,6 +14,14 @@ export function withDashboardQuery(path) {
   return path.includes('?') ? `${path}&${search.slice(1)}` : `${path}${search}`
 }
 
+export function backendUrl(path) {
+  return withDashboardQuery(apiUrl(path))
+}
+
+export function frontendUrl(path) {
+  return withDashboardQuery(appUrl(path))
+}
+
 export function useApi(url, deps = []) {
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
@@ -24,10 +33,10 @@ export function useApi(url, deps = []) {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    fetch(withDashboardQuery(url), { credentials: 'same-origin' })
+    fetch(backendUrl(url), { credentials: 'include' })
       .then(r => {
         if (r.status === 401) {
-          window.location.href = getDashboardSearch() ? withDashboardQuery('/dashboard') : '/dashboard/ui/login'
+          window.location.href = getDashboardSearch() ? backendUrl('/dashboard') : frontendUrl('/login')
           return null
         }
         if (!r.ok) throw new Error('HTTP ' + r.status)

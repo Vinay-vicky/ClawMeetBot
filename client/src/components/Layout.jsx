@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { withDashboardQuery } from '../lib/utils.js'
+import { backendUrl } from '../lib/utils.js'
 
 export default function Layout({ title, subtitle, mainClass, navExtra, children }) {
   const { pathname, search } = useLocation()
@@ -24,7 +24,7 @@ export default function Layout({ title, subtitle, mainClass, navExtra, children 
             </Link>
           ))}
           {navExtra}
-          <a href={withDashboardQuery('/dashboard/logout')} className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
+          <a href={backendUrl('/dashboard/logout')} className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
         </div>
       </div>
       <div className={mainClass || 'main'}>

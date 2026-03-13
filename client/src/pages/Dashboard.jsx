@@ -2,12 +2,22 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Layout from '../components/Layout.jsx'
 import { Spinner, ErrorBox } from '../components/KpiCard.jsx'
-import { useApi, fmtTime, deadlineClass, scoreColor, withDashboardQuery } from '../lib/utils.js'
+import { useApi, fmtTime, deadlineClass, scoreColor, backendUrl } from '../lib/utils.js'
 
 export default function Dashboard() {
   const { data, loading, error, refresh } = useApi('/dashboard/api/team')
   const [countdown, setCountdown] = useState(60)
   const [now, setNow] = useState(new Date())
+
+  async function markDone(id) {
+    const res = await fetch(backendUrl('/dashboard/task/' + id + '/done'), {
+      method: 'POST',
+      headers: { Accept:'application/json', 'X-Requested-With':'fetch' },
+      credentials: 'include',
+    })
+    if (!res.ok) throw new Error('Failed to mark task done')
+    refresh()
+  }
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -102,9 +112,7 @@ export default function Dashboard() {
                     <td>{t.deadline ? <span className={"dlbadge" + (dlCls ? " " + dlCls : "")}>{t.deadline}</span> : '—'}</td>
                     <td>{t.meeting_subject || '—'}</td>
                     <td>
-                      <form method="POST" action={withDashboardQuery('/dashboard/task/' + t.id + '/done')} style={{ margin:0 }}>
-                        <button className="donebtn" type="submit" title="Mark complete">✅</button>
-                      </form>
+                      <button className="donebtn" type="button" title="Mark complete" onClick={() => markDone(t.id)}>✅</button>
                     </td>
                   </tr>
                 )

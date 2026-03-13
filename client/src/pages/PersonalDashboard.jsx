@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Spinner, ErrorBox } from '../components/KpiCard.jsx'
-import { useApi, withDashboardQuery } from '../lib/utils.js'
+import { useApi, backendUrl } from '../lib/utils.js'
 
 export default function PersonalDashboard() {
   const { data, loading, error, refresh } = useApi('/dashboard/api/me')
@@ -19,12 +19,17 @@ export default function PersonalDashboard() {
   const now = new Date().toLocaleString('en-IN', { timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true })
 
   async function post(url, body) {
-    await fetch(withDashboardQuery(url), {
+    const res = await fetch(backendUrl(url), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+        'X-Requested-With': 'fetch',
+      },
       body: new URLSearchParams(body),
-      credentials: 'same-origin',
+      credentials: 'include',
     })
+    if (!res.ok) throw new Error('Request failed')
     refresh()
   }
 
@@ -41,7 +46,7 @@ export default function PersonalDashboard() {
         <div className="nav">
           <Link to={'/public' + search}>👥 Team View</Link>
           <Link to={'/team' + search}>🏠 Team Dashboard</Link>
-          <a href={withDashboardQuery('/dashboard/logout')} className="danger">⏏ Logout</a>
+          <a href={backendUrl('/dashboard/logout')} className="danger">⏏ Logout</a>
         </div>
       </div>
 
@@ -79,15 +84,11 @@ export default function PersonalDashboard() {
                         <td>{t.task}</td>
                         <td className={isOverdue ? "overdue" : ""}>{t.deadline || '—'}</td>
                         <td className="task-actions">
-                          <form method="POST" action={withDashboardQuery('/dashboard/me/task/' + t.id + '/done')} style={{ display:'inline' }}>
-                            <button type="submit" className="btn btn-done">✓ Done</button>
-                          </form>
+                          <button type="button" className="btn btn-done" onClick={() => post('/dashboard/me/task/' + t.id + '/done', {})}>✓ Done</button>
                           {' '}
                           <button type="button" className="btn btn-edit" onClick={() => setEditingTask(editingTask === t.id ? null : t.id)}>✎ Edit</button>
                           {' '}
-                          <form method="POST" action={withDashboardQuery('/dashboard/me/task/' + t.id + '/delete')} style={{ display:'inline' }} onSubmit={e => { if (!window.confirm('Delete this task?')) e.preventDefault() }}>
-                            <button type="submit" className="btn btn-del">🗑</button>
-                          </form>
+                          <button type="button" className="btn btn-del" onClick={async () => { if (window.confirm('Delete this task?')) await post('/dashboard/me/task/' + t.id + '/delete', {}) }}>🗑</button>
                         </td>
                       </tr>,
                       editingTask === t.id && (
@@ -135,9 +136,7 @@ export default function PersonalDashboard() {
                     <span className="note-date">{n.created_at ? n.created_at.substring(0, 10) : ''}</span>
                     <div className="note-act">
                       <button type="button" className="btn btn-edit" onClick={() => setEditingNote(editingNote === n.id ? null : n.id)} title="Edit">✎</button>
-                      <form method="POST" action={withDashboardQuery('/dashboard/me/note/' + n.id + '/delete')} style={{ display:'inline' }} onSubmit={e => { if (!window.confirm('Delete this note?')) e.preventDefault() }}>
-                        <button type="submit" className="btn btn-del" title="Delete">🗑</button>
-                      </form>
+                      <button type="button" className="btn btn-del" title="Delete" onClick={async () => { if (window.confirm('Delete this note?')) await post('/dashboard/me/note/' + n.id + '/delete', {}) }}>🗑</button>
                     </div>
                   </div>
                 </div>

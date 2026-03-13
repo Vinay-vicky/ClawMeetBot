@@ -25,10 +25,16 @@ const {
 const { getScheduledMeetings } = require("../services/calendarService");
 const logger = require("../utils/logger");
 
+const frontendUrl = (process.env.FRONTEND_URL || "").replace(/\/+$/, "");
+const hasSeparateFrontend = Boolean(frontendUrl);
+const useSecureCookies = hasSeparateFrontend && /^https:\/\//i.test(frontendUrl);
+
 function authCheck(req, res, next) {
   const token = process.env.DASHBOARD_TOKEN;
   if (!token) return next();
-  const provided = req.query.token || req.headers["x-dashboard-token"];
+  const authHeader = req.headers.authorization || "";
+  const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  const provided = req.query.token || req.headers["x-dashboard-token"] || bearer;
   if (provided === token) return next();
   res.status(401).send(`<!DOCTYPE html><html><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
@@ -53,7 +59,27 @@ function parseCookies(req) {
 function createSessionCookie(telegramId, name) {
   const payload = Buffer.from(JSON.stringify({ tid: String(telegramId), name: name || "" })).toString("base64url");
   const sig = crypto.createHmac("sha256", sessionSecret()).update(payload).digest("hex");
-  return `cmbt=${payload}.${sig}; Path=/dashboard; HttpOnly; SameSite=Lax; Max-Age=604800`;
+  const attrs = [
+    `cmbt=${payload}.${sig}`,
+    "Path=/dashboard",
+    "HttpOnly",
+    hasSeparateFrontend ? "SameSite=None" : "SameSite=Lax",
+    "Max-Age=604800",
+  ];
+  if (useSecureCookies) attrs.push("Secure");
+  return attrs.join("; ");
+}
+
+function clearSessionCookie() {
+  const attrs = [
+    "cmbt=",
+    "Path=/dashboard",
+    "HttpOnly",
+    hasSeparateFrontend ? "SameSite=None" : "SameSite=Lax",
+    "Max-Age=0",
+  ];
+  if (useSecureCookies) attrs.push("Secure");
+  return attrs.join("; ");
 }
 
 function readSession(req) {
@@ -72,7 +98,7 @@ function readSession(req) {
   }
 }
 
-function buildUiUrl(req, pathname, extra = {}) {
+function buildFrontendUrl(req, pathname, extra = {}) {
   const params = new URLSearchParams();
   if (req.query.token) params.set("token", req.query.token);
   for (const [key, value] of Object.entries(extra)) {
@@ -80,13 +106,34 @@ function buildUiUrl(req, pathname, extra = {}) {
       params.set(key, String(value));
     }
   }
+  const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  const localPath = hasSeparateFrontend
+    ? normalizedPath
+    : `/dashboard/ui${normalizedPath === "/" ? "" : normalizedPath}`;
   const query = params.toString();
-  return query ? `${pathname}?${query}` : pathname;
+  const suffix = query ? `${localPath}?${query}` : localPath;
+  return hasSeparateFrontend ? `${frontendUrl}${suffix}` : suffix;
+}
+
+function wantsJson(req) {
+  const accept = req.headers.accept || "";
+  const requestedWith = req.headers["x-requested-with"] || "";
+  return accept.includes("application/json") || requestedWith === "fetch" || requestedWith === "XMLHttpRequest";
+}
+
+function finishMutation(req, res, redirectPath, payload = { ok: true }) {
+  if (wantsJson(req)) return res.json(payload);
+  return res.redirect(buildFrontendUrl(req, redirectPath));
+}
+
+function failMutation(req, res, redirectPath, status, message) {
+  if (wantsJson(req)) return res.status(status).json({ error: message });
+  return res.redirect(buildFrontendUrl(req, redirectPath, { error: message }));
 }
 
 function requireSession(req, res, next) {
   const session = readSession(req);
-  if (!session) return res.redirect("/dashboard/ui/login?msg=Please+log+in+first");
+  if (!session) return res.redirect(buildFrontendUrl(req, "/login", { msg: "Please log in first" }));
   req.session = session;
   next();
 }
@@ -101,11 +148,13 @@ function requireJsonSession(req, res, next) {
 router.post("/task/:id/done", authCheck, async (req, res) => {
   try {
     await markTaskDone(req.params.id);
-    const back = req.headers.referer || buildUiUrl(req, "/dashboard/ui/team");
-    res.redirect(back);
+    const fallback = buildFrontendUrl(req, "/team");
+    const back = wantsJson(req) ? "/team" : (req.headers.referer || fallback);
+    if (wantsJson(req)) return res.json({ ok: true });
+    return res.redirect(back);
   } catch (err) {
     logger.error("Dashboard mark done error:", err);
-    res.status(500).send("Error marking task done");
+    return failMutation(req, res, "/team", 500, "Error marking task done");
   }
 });
 
@@ -188,24 +237,24 @@ router.post("/auth/login", express.urlencoded({ extended: false }), async (req, 
 });
 
 router.get("/", authCheck, (req, res) => {
-  res.redirect(buildUiUrl(req, "/dashboard/ui/team"));
+  res.redirect(buildFrontendUrl(req, "/team"));
 });
 
 router.get("/analytics", authCheck, (req, res) => {
-  res.redirect(buildUiUrl(req, "/dashboard/ui/analytics"));
+  res.redirect(buildFrontendUrl(req, "/analytics"));
 });
 
-router.get("/public", (req, res) => {
-  res.redirect(buildUiUrl(req, "/dashboard/ui/public"));
+router.get("/public", (_req, res) => {
+  res.redirect(buildFrontendUrl(_req, "/public"));
 });
 
 router.get("/developer", authCheck, (req, res) => {
-  res.redirect(buildUiUrl(req, "/dashboard/ui/developer"));
+  res.redirect(buildFrontendUrl(req, "/developer"));
 });
 
 router.get("/login", async (req, res) => {
   const session = readSession(req);
-  if (session) return res.redirect(buildUiUrl(req, "/dashboard/ui/me"));
+  if (session) return res.redirect(buildFrontendUrl(req, "/me"));
 
   const quickToken = (req.query.token || "").trim();
   if (quickToken) {
@@ -213,99 +262,142 @@ router.get("/login", async (req, res) => {
       const user = await getUserByLinkToken(quickToken);
       if (user) {
         res.setHeader("Set-Cookie", createSessionCookie(user.telegram_id, user.name));
-        return res.redirect("/dashboard/ui/me");
+        return res.redirect(buildFrontendUrl(req, "/me"));
       }
     } catch (_) {}
-    return res.redirect("/dashboard/ui/login?error=" + encodeURIComponent("Invalid or expired login link. Get a new one via /myprofile in Telegram."));
+    return res.redirect(buildFrontendUrl(req, "/login", {
+      error: "Invalid or expired login link. Get a new one via /myprofile in Telegram.",
+    }));
   }
 
   const extra = {};
   if (req.query.error) extra.error = req.query.error;
   if (req.query.msg) extra.msg = req.query.msg;
-  res.redirect(buildUiUrl(req, "/dashboard/ui/login", extra));
+  res.redirect(buildFrontendUrl(req, "/login", extra));
 });
 
 router.post("/login", express.urlencoded({ extended: false }), async (req, res) => {
   const linkToken = (req.body.link_token || "").trim();
-  if (!linkToken) return res.redirect("/dashboard/ui/login?error=" + encodeURIComponent("Please enter your link token."));
+  if (!linkToken) return res.redirect(buildFrontendUrl(req, "/login", { error: "Please enter your link token." }));
   try {
     const user = await getUserByLinkToken(linkToken);
-    if (!user) return res.redirect("/dashboard/ui/login?error=" + encodeURIComponent("Invalid token. Check /myprofile in Telegram."));
+    if (!user) return res.redirect(buildFrontendUrl(req, "/login", { error: "Invalid token. Check /myprofile in Telegram." }));
     res.setHeader("Set-Cookie", createSessionCookie(user.telegram_id, user.name));
-    res.redirect("/dashboard/ui/me");
+    res.redirect(buildFrontendUrl(req, "/me"));
   } catch (err) {
     logger.error("Login error:", err);
-    res.redirect("/dashboard/ui/login?error=" + encodeURIComponent("Login failed, please try again."));
+    res.redirect(buildFrontendUrl(req, "/login", { error: "Login failed, please try again." }));
   }
 });
 
 router.get("/logout", (req, res) => {
-  res.setHeader("Set-Cookie", "cmbt=; Path=/dashboard; HttpOnly; Max-Age=0");
-  res.redirect("/dashboard/ui/login?msg=You+have+been+logged+out");
+  res.setHeader("Set-Cookie", clearSessionCookie());
+  res.redirect(buildFrontendUrl(req, "/login", { msg: "You have been logged out" }));
 });
 
 router.get("/me", requireSession, (req, res) => {
-  res.redirect("/dashboard/ui/me");
+  res.redirect(buildFrontendUrl(req, "/me"));
 });
 
 router.post("/me/task/:id/done", requireSession, async (req, res) => {
   try {
     await donePersonalTask(req.params.id, req.session.tid);
+    return finishMutation(req, res, "/me");
   } catch (err) {
     logger.error("Personal task done error:", err);
+    return failMutation(req, res, "/me", 500, "Failed to mark personal task done");
   }
-  res.redirect("/dashboard/ui/me");
 });
 
 router.post("/me/task/add", requireSession, express.urlencoded({ extended: false }), async (req, res) => {
-  const { task, deadline } = req.body;
-  if (task && task.trim()) {
-    await addPersonalTask(req.session.tid, task.trim(), (deadline || "").trim()).catch(() => {});
+  try {
+    const { task, deadline } = req.body;
+    if (task && task.trim()) {
+      await addPersonalTask(req.session.tid, task.trim(), (deadline || "").trim());
+    }
+    return finishMutation(req, res, "/me");
+  } catch (err) {
+    logger.error("Personal task add error:", err);
+    return failMutation(req, res, "/me", 500, "Failed to add personal task");
   }
-  res.redirect("/dashboard/ui/me");
 });
 
 router.post("/me/task/:id/edit", requireSession, express.urlencoded({ extended: false }), async (req, res) => {
-  const { task, deadline } = req.body;
-  if (task && task.trim()) {
-    await updatePersonalTask(req.params.id, req.session.tid, task.trim(), (deadline || "").trim()).catch(() => {});
+  try {
+    const { task, deadline } = req.body;
+    if (task && task.trim()) {
+      await updatePersonalTask(req.params.id, req.session.tid, task.trim(), (deadline || "").trim());
+    }
+    return finishMutation(req, res, "/me");
+  } catch (err) {
+    logger.error("Personal task edit error:", err);
+    return failMutation(req, res, "/me", 500, "Failed to update personal task");
   }
-  res.redirect("/dashboard/ui/me");
 });
 
 router.post("/me/task/:id/delete", requireSession, async (req, res) => {
-  await deletePersonalTask(req.params.id, req.session.tid).catch(() => {});
-  res.redirect("/dashboard/ui/me");
+  try {
+    await deletePersonalTask(req.params.id, req.session.tid);
+    return finishMutation(req, res, "/me");
+  } catch (err) {
+    logger.error("Personal task delete error:", err);
+    return failMutation(req, res, "/me", 500, "Failed to delete personal task");
+  }
 });
 
 router.post("/me/note/add", requireSession, express.urlencoded({ extended: false }), async (req, res) => {
-  const { note } = req.body;
-  if (note && note.trim()) {
-    await addPersonalNote(req.session.tid, note.trim()).catch(() => {});
+  try {
+    const { note } = req.body;
+    if (note && note.trim()) {
+      await addPersonalNote(req.session.tid, note.trim());
+    }
+    return finishMutation(req, res, "/me");
+  } catch (err) {
+    logger.error("Personal note add error:", err);
+    return failMutation(req, res, "/me", 500, "Failed to add personal note");
   }
-  res.redirect("/dashboard/ui/me");
 });
 
 router.post("/me/note/:id/edit", requireSession, express.urlencoded({ extended: false }), async (req, res) => {
-  const { note } = req.body;
-  if (note && note.trim()) {
-    await updatePersonalNote(req.params.id, req.session.tid, note.trim()).catch(() => {});
+  try {
+    const { note } = req.body;
+    if (note && note.trim()) {
+      await updatePersonalNote(req.params.id, req.session.tid, note.trim());
+    }
+    return finishMutation(req, res, "/me");
+  } catch (err) {
+    logger.error("Personal note edit error:", err);
+    return failMutation(req, res, "/me", 500, "Failed to update personal note");
   }
-  res.redirect("/dashboard/ui/me");
 });
 
 router.post("/me/note/:id/delete", requireSession, async (req, res) => {
-  await deletePersonalNote(req.params.id, req.session.tid).catch(() => {});
-  res.redirect("/dashboard/ui/me");
+  try {
+    await deletePersonalNote(req.params.id, req.session.tid);
+    return finishMutation(req, res, "/me");
+  } catch (err) {
+    logger.error("Personal note delete error:", err);
+    return failMutation(req, res, "/me", 500, "Failed to delete personal note");
+  }
 });
 
-const uiDist = path.join(__dirname, "../public/dashboard-ui");
-router.use("/ui", express.static(uiDist));
-router.get("/ui/*", (_req, res) => {
-  const idx = path.join(uiDist, "index.html");
-  res.sendFile(idx, (err) => {
-    if (err) res.status(404).send("React build not found. Run: cd client && npm run build");
+if (hasSeparateFrontend) {
+  router.get("/ui", (req, res) => {
+    res.redirect(buildFrontendUrl(req, "/team"));
   });
-});
+  router.get("/ui/*", (req, res) => {
+    const subPath = req.path.replace(/^\/ui/, "") || "/";
+    res.redirect(buildFrontendUrl(req, subPath === "/" ? "/team" : subPath));
+  });
+} else {
+  const uiDist = path.join(__dirname, "../public/dashboard-ui");
+  router.use("/ui", express.static(uiDist));
+  router.get("/ui/*", (_req, res) => {
+    const idx = path.join(uiDist, "index.html");
+    res.sendFile(idx, (err) => {
+      if (err) res.status(404).send("React build not found. Run: cd client && npm run build");
+    });
+  });
+}
 
 module.exports = router;

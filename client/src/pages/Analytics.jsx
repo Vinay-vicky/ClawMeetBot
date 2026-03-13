@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import { Spinner, ErrorBox } from '../components/KpiCard.jsx'
-import { useApi, scoreColor, withDashboardQuery } from '../lib/utils.js'
+import { useApi, scoreColor, backendUrl } from '../lib/utils.js'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -28,7 +28,7 @@ function AnalyticsLayout({ children }) {
           <Link to={'/team' + search}    className="refresh">🏠 Team Dashboard</Link>
           <Link to={'/public' + search}  className="refresh">👥 Team View</Link>
           <Link to={'/me' + search}      className="refresh">👤 My Dashboard</Link>
-          <a href={withDashboardQuery('/dashboard/logout')} className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
+          <a href={backendUrl('/dashboard/logout')} className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
         </div>
       </div>
       <div className="main-analytics">{children}</div>

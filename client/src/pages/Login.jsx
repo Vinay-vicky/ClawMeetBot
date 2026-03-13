@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { backendUrl } from '../lib/utils.js'
 
 export default function Login() {
   const [token,   setToken]   = useState('')
@@ -25,10 +26,10 @@ export default function Login() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch('/dashboard/auth/login', {
+      const res = await fetch(backendUrl('/dashboard/auth/login'), {
         method: 'POST',
         body: new URLSearchParams({ link_token: token }),
-        credentials: 'same-origin',
+        credentials: 'include',
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
@@ -77,9 +78,9 @@ export default function Login() {
           4. Paste it above and sign in
         </div>
 
-        <a href="/dashboard/ui/public" className="pub-link">
+        <Link to="/public" className="pub-link">
           👁 View public team overview (no login)
-        </a>
+        </Link>
       </div>
     </div>
   )

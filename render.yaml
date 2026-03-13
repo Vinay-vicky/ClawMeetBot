@@ -26,3 +26,5 @@ services:
         value: https://meet.google.com
       - key: OPENAI_API_KEY
         sync: false
+      - key: FRONTEND_URL
+        sync: false

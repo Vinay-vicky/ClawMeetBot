@@ -1,5 +1,6 @@
 require("dotenv").config({ path: require("path").resolve(__dirname, ".env") });
 const express = require("express");
+const cors = require("cors");
 const crypto = require("crypto");
 const Sentry = require("@sentry/node");
 const rateLimit = require("express-rate-limit");
@@ -27,8 +28,21 @@ if (process.env.SENTRY_DSN) {
 const app = express();
 app.set("trust proxy", 1); // Render / other reverse proxies forward X-Forwarded-For
 
+const frontendUrl = (process.env.FRONTEND_URL || "").replace(/\/+$/, "");
+
 // Sentry request handler must be first middleware
 if (process.env.SENTRY_DSN) app.use(Sentry.Handlers.requestHandler());
+
+if (frontendUrl) {
+  const corsOptions = {
+    origin: frontendUrl,
+    credentials: true,
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-dashboard-token", "x-requested-with"],
+  };
+  app.use(cors(corsOptions));
+  app.options("*", cors(corsOptions));
+}
 
 app.use(express.json());
 
