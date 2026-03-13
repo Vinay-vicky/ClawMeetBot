@@ -87,8 +87,8 @@ export default function PublicView() {
 
         {/* Login CTA */}
         <div className="fc" style={{ textAlign:'center' }}>
-          <p style={{ color:'#8b949e', fontSize:13, marginBottom:12 }}>Want to see your personal tasks and notes?</p>
-          <Link to={'/login' + search} style={{ background:'#238636', color:'#fff', padding:'9px 22px', borderRadius:6, textDecoration:'none', fontSize:13, display:'inline-block' }}>
+          <p style={{ color:'var(--text-muted)', fontSize:13, marginBottom:12 }}>Want to see your personal tasks and notes?</p>
+          <Link to={'/login' + search} style={{ background:'linear-gradient(90deg,var(--brand-strong),var(--brand))', color:'#1a1305', padding:'9px 22px', borderRadius:8, textDecoration:'none', fontSize:13, display:'inline-block', fontWeight:700 }}>
             🔐 Log in with Telegram Link Token
           </Link>
         </div>

@@ -9,9 +9,14 @@ export function KpiCard({ label, value, style }) {
 
 export function Spinner() {
   return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'60px' }}>
-      <div style={{ width:32, height:32, border:'3px solid #30363d', borderTop:'3px solid #58a6ff', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />
-      <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
+    <div className="zuno-loader-wrap" aria-label="Loading Zunoverse dashboard">
+      <div className="zuno-loader" role="img" aria-hidden="true">
+        <span className="zl-ring r1" />
+        <span className="zl-ring r2" />
+        <span className="zl-ring r3" />
+        <span className="zl-ring r4" />
+        <span className="zl-star">★</span>
+      </div>
     </div>
   )
 }

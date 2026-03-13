@@ -90,7 +90,7 @@ export default function DeveloperAPI() {
 
       <div className="ftr">
         ClawMeet Bot &bull;{' '}
-        <Link to={'/team' + search} style={{ color:'#58a6ff', textDecoration:'none' }}>← Back to Dashboard</Link>
+        <Link to={'/team' + search} style={{ color:'var(--brand)', textDecoration:'none' }}>← Back to Dashboard</Link>
       </div>
     </div>
   )

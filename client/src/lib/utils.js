@@ -25,6 +25,7 @@ export function frontendUrl(path) {
 export function useApi(url, deps = []) {
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error,   setError]   = useState(null)
   const [tick,    setTick]    = useState(0)
 
@@ -32,7 +33,9 @@ export function useApi(url, deps = []) {
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
+    const initialLoad = data == null
+    if (initialLoad) setLoading(true)
+    else setRefreshing(true)
     fetch(backendUrl(url), { credentials: 'include' })
       .then(r => {
         if (r.status === 401) {
@@ -44,12 +47,17 @@ export function useApi(url, deps = []) {
       })
       .then(d => { if (!cancelled && d) { setData(d); setError(null) } })
       .catch(e => { if (!cancelled) setError(e.message) })
-      .finally(() => { if (!cancelled) setLoading(false) })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+          setRefreshing(false)
+        }
+      })
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, tick, ...deps])
 
-  return { data, loading, error, refresh }
+  return { data, loading, refreshing, error, refresh }
 }
 
 export function fmtTime(t) {

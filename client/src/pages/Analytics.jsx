@@ -7,12 +7,12 @@ import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from 'recharts'
 
-const GRID  = 'rgba(255,255,255,0.05)'
-const LABEL = '#8b949e'
-const BLUE  = '#58a6ff'
-const GREEN = '#3fb950'
-const AMBER = '#d29922'
-const TT    = { backgroundColor:'#161b22', border:'1px solid #30363d', borderRadius:6, fontSize:11 }
+const GRID  = 'rgba(255,255,255,0.08)'
+const LABEL = '#9ea8c2'
+const BLUE  = '#f6d37a'
+const GREEN = '#63d2a1'
+const AMBER = '#e6b84e'
+const TT    = { backgroundColor:'#101624', border:'1px solid #2a3145', borderRadius:8, fontSize:11 }
 
 function AnalyticsLayout({ children }) {
   const { search } = useLocation()
@@ -34,7 +34,7 @@ function AnalyticsLayout({ children }) {
       <div className="main-analytics">{children}</div>
       <div className="ftr">
         ClawMeet Bot &bull; Analytics &bull;{' '}
-        <Link to={'/team' + search} style={{ color:'#58a6ff', textDecoration:'none' }}>← Back to Dashboard</Link>
+        <Link to={'/team' + search} style={{ color:'var(--brand)', textDecoration:'none' }}>← Back to Dashboard</Link>
       </div>
     </div>
   )
