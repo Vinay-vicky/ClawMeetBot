@@ -1,8 +1,9 @@
-﻿import { lazy, Suspense, useEffect } from 'react'
+﻿import { Component, lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Spinner } from './components/KpiCard.jsx'
 import Login from './pages/Login.jsx'
 import Dashboard from './pages/Dashboard.jsx'
+import Analytics from './pages/Analytics.jsx'
 import { routerBasename } from './lib/config.js'
 import { applyTheme, getStoredTheme } from './lib/utils.js'
 
@@ -26,10 +27,41 @@ function lazyWithRetry(loader, key) {
   )
 }
 
-const Analytics = lazyWithRetry(() => import('./pages/Analytics.jsx'), 'analytics')
 const PersonalDashboard = lazyWithRetry(() => import('./pages/PersonalDashboard.jsx'), 'personal-dashboard')
 const PublicView = lazyWithRetry(() => import('./pages/PublicView.jsx'), 'public-view')
 const DeveloperAPI = lazyWithRetry(() => import('./pages/DeveloperAPI.jsx'), 'developer-api')
+
+class RouteErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error) {
+    // eslint-disable-next-line no-console
+    console.error('Route render error:', error)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="main">
+          <div className="card">
+            <h2>Analytics page failed to load</h2>
+            <p className="page-sub" style={{ marginBottom: 0 }}>
+              Please refresh once. If it persists, sign out and sign in again.
+            </p>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 function RouteFallback() {
   return (
@@ -48,7 +80,7 @@ function AppRoutes() {
         <Route path="/"          element={<Navigate to="/team" replace />} />
         <Route path="/login"     element={<Login />} />
         <Route path="/team"      element={<Dashboard />} />
-        <Route path="/analytics" element={<Suspense fallback={<RouteFallback />}><Analytics /></Suspense>} />
+        <Route path="/analytics/*" element={<RouteErrorBoundary><Analytics /></RouteErrorBoundary>} />
         <Route path="/me"        element={<Suspense fallback={<RouteFallback />}><PersonalDashboard /></Suspense>} />
         <Route path="/public"    element={<Suspense fallback={<RouteFallback />}><PublicView /></Suspense>} />
         <Route path="/developer" element={<Suspense fallback={<RouteFallback />}><DeveloperAPI /></Suspense>} />
