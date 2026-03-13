@@ -374,10 +374,21 @@ router.delete("/api/me/upload-photo", requireJsonSession, async (req, res) => {
 
 router.get("/api/me/telegram-photo", requireJsonSession, async (req, res) => {
   try {
-    const photoUrl = await getTelegramProfilePhotoFileUrl(req.session.tid);
+    let photoUrl = await getTelegramProfilePhotoFileUrl(req.session.tid);
+
+    // Fallback: Telegram public username avatar URL.
+    // Useful when bot APIs cannot read profile photos for a given user context.
+    if (!photoUrl) {
+      const user = await getUserByTelegramId(req.session.tid);
+      const username = String(user?.username || "").trim().replace(/^@+/, "");
+      if (username) {
+        photoUrl = `https://t.me/i/userpic/320/${encodeURIComponent(username)}.jpg`;
+      }
+    }
+
     if (!photoUrl) return res.status(204).end();
 
-    const photoRes = await fetch(photoUrl);
+    const photoRes = await fetch(photoUrl, { cache: "no-store" });
     if (!photoRes.ok) {
       logger.warn(`Telegram photo fetch failed with status ${photoRes.status} for user ${req.session.tid}`);
       return res.status(204).end();
