@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { AnalyticsSkeleton, ErrorBox } from '../components/KpiCard.jsx'
 import { useApi, scoreColor, backendUrl, getStoredTheme } from '../lib/utils.js'
@@ -67,6 +67,7 @@ function AnalyticsLayout({ children }) {
 export default function Analytics() {
   const { data, loading, error } = useApi('/dashboard/api/team')
   const [theme, setTheme] = useState(() => getStoredTheme())
+  const chartTheme = getThemeChartTokens(theme)
 
   useEffect(() => {
     const onThemeChange = (event) => {
@@ -89,7 +90,6 @@ export default function Analytics() {
   const aiCov     = data.summaryCount && data.meetings?.length ? Math.round(data.summaryCount / data.meetings.length * 100) : 0
   const actScore  = Math.min(100, Math.round(((meetStats?.thisWeek ?? 0) / 5) * 100))
   const pColor    = scoreColor(productivityScore)
-  const chartTheme = useMemo(() => getThemeChartTokens(theme), [theme])
 
   const radarData = [
     { subject: 'Tasks',       A: Math.round(rate) },
