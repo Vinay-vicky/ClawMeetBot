@@ -1,5 +1,6 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import Layout from '../components/Layout.jsx'
+import { withDashboardQuery } from '../lib/utils.js'
 
 const endpoints = {
   '✅ Tasks': [
@@ -24,6 +25,7 @@ const badgeCls = { GET:'badge-get', POST:'badge-post', PATCH:'badge-patch', DELE
 const integrations = ['⚡ Zapier', '🧶 n8n', '🔄 Make.com', '🤖 Custom AI agents', '📋 Postman / curl']
 
 export default function DeveloperAPI() {
+  const { search } = useLocation()
   const now = new Date().toLocaleString('en-IN', { timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true })
 
   return (
@@ -34,9 +36,9 @@ export default function DeveloperAPI() {
           <div className="sub">ClawMeet Bot REST Reference &bull; {now}</div>
         </div>
         <div className="hdr-right">
-          <Link to="/team"      className="refresh">🏠 Team Dashboard</Link>
-          <Link to="/analytics" className="refresh">📊 Analytics</Link>
-          <a href="/dashboard/logout" className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
+          <Link to={'/team' + search}      className="refresh">🏠 Team Dashboard</Link>
+          <Link to={'/analytics' + search} className="refresh">📊 Analytics</Link>
+          <a href={withDashboardQuery('/dashboard/logout')} className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
         </div>
       </div>
 
@@ -89,7 +91,7 @@ export default function DeveloperAPI() {
 
       <div className="ftr">
         ClawMeet Bot &bull;{' '}
-        <Link to="/team" style={{ color:'#58a6ff', textDecoration:'none' }}>← Back to Dashboard</Link>
+        <Link to={'/team' + search} style={{ color:'#58a6ff', textDecoration:'none' }}>← Back to Dashboard</Link>
       </div>
     </div>
   )

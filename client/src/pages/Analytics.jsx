@@ -1,6 +1,6 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { Spinner, ErrorBox } from '../components/KpiCard.jsx'
-import { useApi, scoreColor } from '../lib/utils.js'
+import { useApi, scoreColor, withDashboardQuery } from '../lib/utils.js'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -15,6 +15,8 @@ const AMBER = '#d29922'
 const TT    = { backgroundColor:'#161b22', border:'1px solid #30363d', borderRadius:6, fontSize:11 }
 
 function AnalyticsLayout({ children }) {
+  const { search } = useLocation()
+
   return (
     <div>
       <div className="hdr">
@@ -23,16 +25,16 @@ function AnalyticsLayout({ children }) {
           <div className="sub"><span className="live-dot" /> Charts &amp; metrics overview</div>
         </div>
         <div className="hdr-right">
-          <Link to="/team"    className="refresh">🏠 Team Dashboard</Link>
-          <Link to="/public"  className="refresh">👥 Team View</Link>
-          <Link to="/me"      className="refresh">👤 My Dashboard</Link>
-          <a href="/dashboard/logout" className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
+          <Link to={'/team' + search}    className="refresh">🏠 Team Dashboard</Link>
+          <Link to={'/public' + search}  className="refresh">👥 Team View</Link>
+          <Link to={'/me' + search}      className="refresh">👤 My Dashboard</Link>
+          <a href={withDashboardQuery('/dashboard/logout')} className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
         </div>
       </div>
       <div className="main-analytics">{children}</div>
       <div className="ftr">
         ClawMeet Bot &bull; Analytics &bull;{' '}
-        <Link to="/team" style={{ color:'#58a6ff', textDecoration:'none' }}>← Back to Dashboard</Link>
+        <Link to={'/team' + search} style={{ color:'#58a6ff', textDecoration:'none' }}>← Back to Dashboard</Link>
       </div>
     </div>
   )

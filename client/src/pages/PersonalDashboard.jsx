@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { Spinner, ErrorBox } from '../components/KpiCard.jsx'
-import { useApi, fmtTime } from '../lib/utils.js'
+import { useApi, withDashboardQuery } from '../lib/utils.js'
 
 export default function PersonalDashboard() {
   const { data, loading, error, refresh } = useApi('/dashboard/api/me')
   const [editingTask, setEditingTask] = useState(null)
   const [editingNote, setEditingNote] = useState(null)
+  const { search } = useLocation()
 
   if (loading) return <div className="main"><Spinner /></div>
   if (error)   return <div className="main"><ErrorBox message={error} /></div>
@@ -18,7 +19,7 @@ export default function PersonalDashboard() {
   const now = new Date().toLocaleString('en-IN', { timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true })
 
   async function post(url, body) {
-    await fetch(url, {
+    await fetch(withDashboardQuery(url), {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams(body),
@@ -38,9 +39,9 @@ export default function PersonalDashboard() {
           </div>
         </div>
         <div className="nav">
-          <Link to="/public">👥 Team View</Link>
-          <Link to="/team">🏠 Team Dashboard</Link>
-          <a href="/dashboard/logout" className="danger">⏏ Logout</a>
+          <Link to={'/public' + search}>👥 Team View</Link>
+          <Link to={'/team' + search}>🏠 Team Dashboard</Link>
+          <a href={withDashboardQuery('/dashboard/logout')} className="danger">⏏ Logout</a>
         </div>
       </div>
 
@@ -78,13 +79,13 @@ export default function PersonalDashboard() {
                         <td>{t.task}</td>
                         <td className={isOverdue ? "overdue" : ""}>{t.deadline || '—'}</td>
                         <td className="task-actions">
-                          <form method="POST" action={"/dashboard/me/task/" + t.id + "/done"} style={{ display:'inline' }}>
+                          <form method="POST" action={withDashboardQuery('/dashboard/me/task/' + t.id + '/done')} style={{ display:'inline' }}>
                             <button type="submit" className="btn btn-done">✓ Done</button>
                           </form>
                           {' '}
                           <button type="button" className="btn btn-edit" onClick={() => setEditingTask(editingTask === t.id ? null : t.id)}>✎ Edit</button>
                           {' '}
-                          <form method="POST" action={"/dashboard/me/task/" + t.id + "/delete"} style={{ display:'inline' }} onSubmit={e => { if (!window.confirm('Delete this task?')) e.preventDefault() }}>
+                          <form method="POST" action={withDashboardQuery('/dashboard/me/task/' + t.id + '/delete')} style={{ display:'inline' }} onSubmit={e => { if (!window.confirm('Delete this task?')) e.preventDefault() }}>
                             <button type="submit" className="btn btn-del">🗑</button>
                           </form>
                         </td>
@@ -134,7 +135,7 @@ export default function PersonalDashboard() {
                     <span className="note-date">{n.created_at ? n.created_at.substring(0, 10) : ''}</span>
                     <div className="note-act">
                       <button type="button" className="btn btn-edit" onClick={() => setEditingNote(editingNote === n.id ? null : n.id)} title="Edit">✎</button>
-                      <form method="POST" action={"/dashboard/me/note/" + n.id + "/delete"} style={{ display:'inline' }} onSubmit={e => { if (!window.confirm('Delete this note?')) e.preventDefault() }}>
+                      <form method="POST" action={withDashboardQuery('/dashboard/me/note/' + n.id + '/delete')} style={{ display:'inline' }} onSubmit={e => { if (!window.confirm('Delete this note?')) e.preventDefault() }}>
                         <button type="submit" className="btn btn-del" title="Delete">🗑</button>
                       </form>
                     </div>

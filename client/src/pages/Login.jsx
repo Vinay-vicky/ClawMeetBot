@@ -1,11 +1,24 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 export default function Login() {
   const [token,   setToken]   = useState('')
   const [error,   setError]   = useState('')
+  const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const { search } = useLocation()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    const params = new URLSearchParams(search)
+    setError(params.get('error') || '')
+    setMessage(params.get('msg') || '')
+
+    const quickToken = params.get('token')
+    if (quickToken) {
+      setToken(quickToken)
+    }
+  }, [search])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -37,7 +50,8 @@ export default function Login() {
         <div className="logo-title">ClawMeet Dashboard</div>
         <div className="logo-sub">Sign in with your personal link token to view your workspace.</div>
 
-        {error && <div className="msg-err">❌ {error}</div>}
+  {error && <div className="msg-err">❌ {error}</div>}
+  {!error && message && <div className="msg-ok">✓ {message}</div>}
 
         <form onSubmit={handleSubmit}>
           <label className="field-label">Your Link Token</label>
@@ -63,7 +77,7 @@ export default function Login() {
           4. Paste it above and sign in
         </div>
 
-        <a href="/dashboard/public" className="pub-link">
+        <a href="/dashboard/ui/public" className="pub-link">
           👁 View public team overview (no login)
         </a>
       </div>

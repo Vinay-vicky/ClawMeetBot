@@ -22,7 +22,7 @@ export default function PublicView() {
           <div className="sub">Public view &middot; {now}</div>
         </div>
         <div className="nav">
-          <a href="/dashboard/login">🔐 My Dashboard</a>
+          <a href="/dashboard/ui/login">🔐 My Dashboard</a>
         </div>
       </div>
 
@@ -86,7 +86,7 @@ export default function PublicView() {
         {/* Login CTA */}
         <div className="fc" style={{ textAlign:'center' }}>
           <p style={{ color:'#8b949e', fontSize:13, marginBottom:12 }}>Want to see your personal tasks and notes?</p>
-          <a href="/dashboard/login" style={{ background:'#238636', color:'#fff', padding:'9px 22px', borderRadius:6, textDecoration:'none', fontSize:13 }}>
+          <a href="/dashboard/ui/login" style={{ background:'#238636', color:'#fff', padding:'9px 22px', borderRadius:6, textDecoration:'none', fontSize:13 }}>
             🔐 Log in with Telegram Link Token
           </a>
         </div>

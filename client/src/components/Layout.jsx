@@ -1,7 +1,8 @@
 import { Link, useLocation } from 'react-router-dom'
+import { withDashboardQuery } from '../lib/utils.js'
 
 export default function Layout({ title, subtitle, mainClass, navExtra, children }) {
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
 
   const navLinks = [
     { to: '/analytics', href: null, label: '📊 Analytics' },
@@ -18,12 +19,12 @@ export default function Layout({ title, subtitle, mainClass, navExtra, children 
         </div>
         <div className="hdr-right">
           {navLinks.map(({ to, label }) => (
-            <Link key={to} to={to} className="refresh" style={pathname === to ? { borderColor:'#58a6ff' } : {}}>
+            <Link key={to} to={to + search} className="refresh" style={pathname === to ? { borderColor:'#58a6ff' } : {}}>
               {label}
             </Link>
           ))}
           {navExtra}
-          <a href="/dashboard/logout" className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
+          <a href={withDashboardQuery('/dashboard/logout')} className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
         </div>
       </div>
       <div className={mainClass || 'main'}>
@@ -34,7 +35,7 @@ export default function Layout({ title, subtitle, mainClass, navExtra, children 
         ClawMeet Bot &bull; Microsoft Teams + Gemini AI &bull; Node.js &bull;{' '}
         <a href="https://github.com/Vinay-vicky/ClawMeetBot" target="_blank" rel="noreferrer" style={{ color:'#58a6ff', textDecoration:'none' }}>GitHub</a>
         {' '}&bull;{' '}
-        <Link to="/developer" style={{ color:'#484f58', textDecoration:'none', fontSize:10 }}>🔧 Developer API</Link>
+        <Link to={'/developer' + search} style={{ color:'#484f58', textDecoration:'none', fontSize:10 }}>🔧 Developer API</Link>
       </div>
     </div>
   )

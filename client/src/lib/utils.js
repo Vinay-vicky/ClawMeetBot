@@ -1,5 +1,18 @@
 import { useState, useEffect, useCallback } from 'react'
 
+export function getDashboardSearch() {
+  if (typeof window === 'undefined') return ''
+  const params = new URLSearchParams(window.location.search)
+  const token = params.get('token')
+  return token ? `?token=${encodeURIComponent(token)}` : ''
+}
+
+export function withDashboardQuery(path) {
+  const search = getDashboardSearch()
+  if (!search) return path
+  return path.includes('?') ? `${path}&${search.slice(1)}` : `${path}${search}`
+}
+
 export function useApi(url, deps = []) {
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
@@ -11,9 +24,12 @@ export function useApi(url, deps = []) {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    fetch(url, { credentials: 'same-origin' })
+    fetch(withDashboardQuery(url), { credentials: 'same-origin' })
       .then(r => {
-        if (r.status === 401) { window.location.href = '/dashboard/login'; return null }
+        if (r.status === 401) {
+          window.location.href = getDashboardSearch() ? withDashboardQuery('/dashboard') : '/dashboard/ui/login'
+          return null
+        }
         if (!r.ok) throw new Error('HTTP ' + r.status)
         return r.json()
       })

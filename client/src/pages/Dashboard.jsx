@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Layout from '../components/Layout.jsx'
 import { Spinner, ErrorBox } from '../components/KpiCard.jsx'
-import { useApi, fmtTime, deadlineClass, scoreColor } from '../lib/utils.js'
+import { useApi, fmtTime, deadlineClass, scoreColor, withDashboardQuery } from '../lib/utils.js'
 
 export default function Dashboard() {
   const { data, loading, error, refresh } = useApi('/dashboard/api/team')
@@ -102,7 +102,7 @@ export default function Dashboard() {
                     <td>{t.deadline ? <span className={"dlbadge" + (dlCls ? " " + dlCls : "")}>{t.deadline}</span> : '—'}</td>
                     <td>{t.meeting_subject || '—'}</td>
                     <td>
-                      <form method="POST" action={"/dashboard/task/" + t.id + "/done"} style={{ margin:0 }}>
+                      <form method="POST" action={withDashboardQuery('/dashboard/task/' + t.id + '/done')} style={{ margin:0 }}>
                         <button className="donebtn" type="submit" title="Mark complete">✅</button>
                       </form>
                     </td>
