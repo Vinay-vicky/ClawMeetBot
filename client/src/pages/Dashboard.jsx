@@ -4,6 +4,14 @@ import Layout from '../components/Layout.jsx'
 import { DashboardSkeleton, ErrorBox } from '../components/KpiCard.jsx'
 import { useApi, fmtTime, deadlineClass, scoreColor, backendUrl } from '../lib/utils.js'
 
+let analyticsPrefetchPromise = null
+function prefetchAnalyticsRoute() {
+  if (!analyticsPrefetchPromise) {
+    analyticsPrefetchPromise = import('./Analytics.jsx')
+  }
+  return analyticsPrefetchPromise
+}
+
 export default function Dashboard() {
   const { data, loading, refreshing, error, refresh } = useApi('/dashboard/api/team')
   const [countdown, setCountdown] = useState(60)
@@ -29,6 +37,34 @@ export default function Dashboard() {
     }, 1000)
     return () => clearInterval(t)
   }, [refresh])
+
+  useEffect(() => {
+    let cancelled = false
+    let idleId = null
+    let timeoutId = null
+
+    const runPrefetch = () => {
+      if (!cancelled) {
+        prefetchAnalyticsRoute().catch(() => {})
+      }
+    }
+
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      idleId = window.requestIdleCallback(() => runPrefetch(), { timeout: 1200 })
+    } else {
+      timeoutId = window.setTimeout(runPrefetch, 700)
+    }
+
+    return () => {
+      cancelled = true
+      if (idleId !== null && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
+        window.cancelIdleCallback(idleId)
+      }
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  }, [])
 
   if (loading) return <Layout><DashboardSkeleton /></Layout>
   if (error)   return <Layout><ErrorBox message={error} /></Layout>
@@ -95,7 +131,13 @@ export default function Dashboard() {
           Meetings per week &bull; Task completion &bull; Productivity score &bull; Top assignees &bull; Busiest days<br />
           All charts in one focused, distraction-free view
         </p>
-        <Link to="/analytics" style={{ display:'inline-block', background:'linear-gradient(90deg,var(--brand-strong),var(--brand))', color:'#1a1305', padding:'10px 28px', borderRadius:8, textDecoration:'none', fontSize:13, fontWeight:700 }}>
+        <Link
+          to="/analytics"
+          onMouseEnter={prefetchAnalyticsRoute}
+          onTouchStart={prefetchAnalyticsRoute}
+          onFocus={prefetchAnalyticsRoute}
+          style={{ display:'inline-block', background:'linear-gradient(90deg,var(--brand-strong),var(--brand))', color:'#1a1305', padding:'10px 28px', borderRadius:8, textDecoration:'none', fontSize:13, fontWeight:700 }}
+        >
           📊 View Analytics &rarr;
         </Link>
       </div>
