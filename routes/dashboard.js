@@ -14,6 +14,7 @@ const {
   getPersonalTasks,
   getPersonalNotes,
   getUserByTelegramId,
+  updateUserProfileSettings,
   addPersonalTask,
   donePersonalTask,
   deletePersonalTask,
@@ -219,6 +220,39 @@ router.get("/api/me", requireJsonSession, async (req, res) => {
     res.json({ user: user || { name: req.session.name, telegram_id: telegramId }, tasks, notes });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/api/me/profile", requireJsonSession, express.json({ limit: "10kb" }), async (req, res) => {
+  const telegramId = req.session.tid;
+  const incomingTheme = String(req.body?.profileTheme || "").toLowerCase();
+  const profileTheme = incomingTheme === "light" ? "light" : "dark";
+
+  const incomingAvatar = req.body?.avatarConfig;
+  if (!incomingAvatar || typeof incomingAvatar !== "object") {
+    return res.status(400).json({ error: "avatarConfig object is required" });
+  }
+
+  const shape = ["circle", "rounded", "square"].includes(incomingAvatar.shape)
+    ? incomingAvatar.shape
+    : "circle";
+  const pattern = ["solid", "gradient", "ring"].includes(incomingAvatar.pattern)
+    ? incomingAvatar.pattern
+    : "gradient";
+  const bg = typeof incomingAvatar.bg === "string" ? incomingAvatar.bg.trim().slice(0, 32) : "#f6d37a";
+  const accent = typeof incomingAvatar.accent === "string" ? incomingAvatar.accent.trim().slice(0, 32) : "#e6b84e";
+  const fg = typeof incomingAvatar.fg === "string" ? incomingAvatar.fg.trim().slice(0, 32) : "#1a1305";
+  const symbol = typeof incomingAvatar.symbol === "string" ? incomingAvatar.symbol.trim().slice(0, 2).toUpperCase() : "";
+
+  const avatarConfig = { shape, pattern, bg, accent, fg, symbol };
+
+  try {
+    await updateUserProfileSettings(telegramId, profileTheme, JSON.stringify(avatarConfig));
+    const user = await getUserByTelegramId(telegramId);
+    return res.json({ ok: true, user });
+  } catch (err) {
+    logger.error("Profile update error:", err);
+    return res.status(500).json({ error: "Failed to update profile settings" });
   }
 });
 

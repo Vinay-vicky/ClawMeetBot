@@ -12,6 +12,17 @@ const db = createClient(
     : { url: "file:meetings.db" }
 );
 
+async function hasColumn(tableName, columnName) {
+  const res = await db.execute(`PRAGMA table_info(${tableName})`);
+  return res.rows.some((row) => String(row.name).toLowerCase() === String(columnName).toLowerCase());
+}
+
+async function ensureColumn(tableName, columnName, definitionSql) {
+  const exists = await hasColumn(tableName, columnName);
+  if (exists) return;
+  await db.execute(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definitionSql}`);
+}
+
 /** Run DDL once on startup */
 async function initDb() {
   await db.executeMultiple(`
@@ -116,6 +127,10 @@ async function initDb() {
       created_at  TEXT DEFAULT (datetime('now'))
     );
   `);
+
+  await ensureColumn("users", "profile_theme", "TEXT DEFAULT 'dark'");
+  await ensureColumn("users", "avatar_config", "TEXT DEFAULT ''");
+
   logger.info("Database ready" + (process.env.TURSO_DATABASE_URL ? " (Turso cloud)" : " (local SQLite)"));
 }
 
@@ -424,6 +439,18 @@ async function getUserByTelegramId(telegramId) {
   return res.rows[0] || null;
 }
 
+async function updateUserProfileSettings(telegramId, profileTheme, avatarConfig) {
+  const tid = String(telegramId);
+  await db.execute({
+    sql: `INSERT INTO users (telegram_id, profile_theme, avatar_config)
+          VALUES (?, ?, ?)
+          ON CONFLICT(telegram_id) DO UPDATE SET
+            profile_theme = excluded.profile_theme,
+            avatar_config = excluded.avatar_config`,
+    args: [tid, profileTheme, avatarConfig],
+  });
+}
+
 /** Generate (or return existing) a short link token for dashboard pairing */
 async function generateLinkToken(telegramId) {
   const existing = await getUserByTelegramId(telegramId);
@@ -618,6 +645,7 @@ module.exports = {
   addPersonalNote, getPersonalNotes, deletePersonalNote, updatePersonalNote,
   // Users
   upsertUser, getUserByTelegramId, generateLinkToken, getUserByLinkToken,
+  updateUserProfileSettings,
   getPersonalWorkspaceSummary,
   // Transcripts
   saveTranscript, getTranscriptsByMeeting,

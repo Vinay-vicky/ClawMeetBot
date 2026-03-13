@@ -89,3 +89,25 @@ export function scoreColor(score) {
   if (score >= 40) return '#d29922'
   return '#f85149'
 }
+
+const THEME_KEY = 'cmbt-theme'
+
+export function getStoredTheme() {
+  if (typeof window === 'undefined') return 'dark'
+  const saved = window.localStorage.getItem(THEME_KEY)
+  if (saved === 'light' || saved === 'dark') return saved
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+}
+
+export function applyTheme(theme) {
+  if (typeof document === 'undefined') return
+  document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark')
+}
+
+export function setStoredTheme(theme) {
+  if (typeof window === 'undefined') return
+  const next = theme === 'light' ? 'light' : 'dark'
+  window.localStorage.setItem(THEME_KEY, next)
+  applyTheme(next)
+  window.dispatchEvent(new CustomEvent('cmbt-theme-change', { detail: next }))
+}
