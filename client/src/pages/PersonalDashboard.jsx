@@ -149,8 +149,9 @@ export default function PersonalDashboard() {
           return
         }
 
-        const res = await fetch(backendUrl('/dashboard/api/me/telegram-photo'), {
+        const res = await fetch(backendUrl(`/dashboard/api/me/telegram-photo?reload=${telegramPhotoReloadKey}`), {
           credentials: 'include',
+          cache: 'no-store',
           headers: { Accept: 'image/*', 'X-Requested-With': 'fetch' },
         })
 
