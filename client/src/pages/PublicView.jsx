@@ -125,14 +125,10 @@ export default function PublicView() {
                 return (
                   <div className="team-member-card" key={`${m.name}-${idx}`}>
                     <div className="team-member-head">
-                      {m.imageUrl ? (
-                        <img src={m.imageUrl} alt={`${m.name} profile`} className="team-member-avatar" />
-                      ) : (
-                        <div className="team-member-avatar">{initials}</div>
-                      )}
+                      <div className="team-member-avatar">{initials}</div>
                       <div>
                         <strong>{m.name || 'Team Member'}</strong>
-                        <small>{m.username ? `@${m.username}` : (m.email || 'No public username')}</small>
+                        <small>{m.email || 'Team member'}</small>
                         <span className={load.className}>{load.label}</span>
                       </div>
                     </div>

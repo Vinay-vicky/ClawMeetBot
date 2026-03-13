@@ -12,7 +12,6 @@ const {
   markTaskDone,
   getAllMembers,
   getTaskEngagementByPerson,
-  getUsersPublicProfiles,
   getUserByLinkToken,
   getPersonalTasks,
   getPersonalNotes,
@@ -234,29 +233,14 @@ router.get("/api/team", authCheck, async (req, res) => {
 
 router.get("/api/public", async (req, res) => {
   try {
-    const [meetings, meetStats, taskStats, analytics, members, taskEngagement, userProfiles] = await Promise.all([
+    const [meetings, meetStats, taskStats, analytics, members, taskEngagement] = await Promise.all([
       getRecentMeetings(10),
       getMeetingStats(),
       getTaskStats(),
       getMeetingAnalytics(),
       getAllMembers(),
       getTaskEngagementByPerson(),
-      getUsersPublicProfiles(),
     ]);
-
-    const profileByName = new Map();
-    for (const u of userProfiles) {
-      const key = normalizeName(u.name);
-      if (!key) continue;
-      const avatar = parseAvatar(u.avatar_config) || {};
-      const username = String(u.username || "").trim().replace(/^@+/, "");
-      const uploadUrl = avatar?.source === "upload" && isHttpUrl(avatar.imageUrl) ? avatar.imageUrl : "";
-      const telegramUrl = username ? `https://t.me/i/userpic/320/${encodeURIComponent(username)}.jpg` : "";
-      profileByName.set(key, {
-        username,
-        imageUrl: uploadUrl || telegramUrl,
-      });
-    }
 
     const engagementByName = new Map();
     for (const row of taskEngagement) {
@@ -269,29 +253,19 @@ router.get("/api/public", async (req, res) => {
       });
     }
 
-    const allNames = new Set();
-    members.forEach((m) => allNames.add(normalizeName(m.name)));
-    taskEngagement.forEach((t) => allNames.add(normalizeName(t.person)));
-    userProfiles.forEach((u) => allNames.add(normalizeName(u.name)));
-
-    const memberDirectory = [];
-    for (const nameKey of allNames) {
-      if (!nameKey) continue;
-      const sourceMember = members.find((m) => normalizeName(m.name) === nameKey);
-      const sourceUser = userProfiles.find((u) => normalizeName(u.name) === nameKey);
-      const engagement = engagementByName.get(nameKey) || { pending: 0, total: 0, done: 0 };
-      const profile = profileByName.get(nameKey) || { username: "", imageUrl: "" };
-
-      memberDirectory.push({
-        name: sourceMember?.name || sourceUser?.name || nameKey,
-        email: sourceMember?.email || "",
-        username: profile.username,
-        imageUrl: profile.imageUrl,
+    const memberDirectory = members.map((m) => {
+      const key = normalizeName(m.name);
+      const engagement = engagementByName.get(key) || { pending: 0, total: 0, done: 0 };
+      return {
+        name: m.name,
+        email: m.email || "",
+        username: "",
+        imageUrl: "",
         activeTasks: engagement.pending,
         completedTasks: engagement.done,
         totalTasks: engagement.total,
-      });
-    }
+      };
+    });
 
     memberDirectory.sort((a, b) => {
       if (b.activeTasks !== a.activeTasks) return b.activeTasks - a.activeTasks;
