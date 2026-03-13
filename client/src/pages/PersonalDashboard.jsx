@@ -192,6 +192,7 @@ export default function PersonalDashboard() {
     : avatarConfig.source === 'upload' && (avatarConfig.imageUrl || avatarConfig.imageData)
       ? 'Uploaded photo'
       : 'Custom avatar'
+  const hasUploadedPhoto = Boolean(avatarConfig.imageUrl || avatarConfig.imageData || avatarConfig.imagePublicId)
 
   if (loading) return <div className="main"><PersonalSkeleton /></div>
   if (error)   return <div className="main"><ErrorBox message={error} /></div>
@@ -244,6 +245,18 @@ export default function PersonalDashboard() {
   function useCustomAvatar() {
     setAvatarConfig((current) => ({ ...current, source: 'custom' }))
     setSaveStatus({ saving: false, error: '', ok: '' })
+  }
+
+  function removeUploadedPhoto() {
+    if (!hasUploadedPhoto) return
+    setAvatarConfig((current) => ({
+      ...current,
+      source: 'custom',
+      imageData: '',
+      imageUrl: '',
+      imagePublicId: '',
+    }))
+    setSaveStatus({ saving: false, error: '', ok: 'Uploaded photo will be removed after saving' })
   }
 
   function onUploadProfilePhoto(event) {
@@ -388,6 +401,15 @@ export default function PersonalDashboard() {
                 Upload Photo
                 <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={onUploadProfilePhoto} />
               </label>
+              <button
+                type="button"
+                className="btn btn-remove"
+                onClick={removeUploadedPhoto}
+                disabled={!hasUploadedPhoto}
+                title="Remove uploaded profile photo"
+              >
+                Remove Uploaded Photo
+              </button>
               <small>
                 {telegramPhotoReady
                   ? 'Choose Telegram photo, upload your own, or use a custom avatar style.'

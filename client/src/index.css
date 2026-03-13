@@ -234,6 +234,9 @@ code{background:#0d1320;border:1px solid var(--border);padding:2px 7px;border-ra
 .btn-save:hover{filter:brightness(1.05);box-shadow:0 0 0 1px rgba(246,211,122,.35),0 4px 14px rgba(246,211,122,.18)}
 .btn-cancel{background:#182134;color:var(--text-muted);border-color:var(--border)}
 .btn-cancel:hover{color:var(--text)}
+.btn-remove{background:rgba(255,123,123,.12);color:var(--danger);border-color:rgba(255,123,123,.45)}
+.btn-remove:hover{background:rgba(255,123,123,.2)}
+.btn-remove:disabled{opacity:.5;cursor:not-allowed}
 .btn-add{background:linear-gradient(90deg,var(--brand-strong),var(--brand));color:#1a1305;border-color:#f2c969;padding:7px 14px;font-size:12px;font-weight:700}
 .btn-add:hover{filter:brightness(1.05);box-shadow:0 0 0 1px rgba(246,211,122,.35),0 4px 14px rgba(246,211,122,.18)}
 .notes-scroll{max-height:420px;overflow-y:auto}
