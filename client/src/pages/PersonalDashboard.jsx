@@ -5,6 +5,7 @@ import { useApi, backendUrl, getStoredTheme, setStoredTheme } from '../lib/utils
 
 const defaultAvatar = {
   source: 'custom',
+  imageData: '',
   shape: 'circle',
   pattern: 'gradient',
   bg: '#f6d37a',
@@ -41,7 +42,8 @@ const presetThemes = [
 function safeAvatar(rawAvatar) {
   if (!rawAvatar || typeof rawAvatar !== 'object') return { ...defaultAvatar }
   return {
-    source: rawAvatar.source === 'telegram' ? 'telegram' : defaultAvatar.source,
+    source: ['telegram', 'upload'].includes(rawAvatar.source) ? rawAvatar.source : defaultAvatar.source,
+    imageData: typeof rawAvatar.imageData === 'string' ? rawAvatar.imageData.slice(0, 600000) : '',
     shape: ['circle', 'rounded', 'square'].includes(rawAvatar.shape) ? rawAvatar.shape : defaultAvatar.shape,
     pattern: ['solid', 'gradient', 'ring'].includes(rawAvatar.pattern) ? rawAvatar.pattern : defaultAvatar.pattern,
     bg: typeof rawAvatar.bg === 'string' ? rawAvatar.bg : defaultAvatar.bg,
@@ -77,9 +79,14 @@ function matchesPreset(theme, avatarConfig, preset) {
 
 function ProfileAvatar({ avatarConfig, initials, telegramPhotoUrl, className = '', style }) {
   const useTelegramPhoto = avatarConfig.source === 'telegram' && telegramPhotoUrl
+  const useUploadedPhoto = avatarConfig.source === 'upload' && avatarConfig.imageData
 
   if (useTelegramPhoto) {
     return <img src={telegramPhotoUrl} alt="Telegram profile" className={`avatar avatar-photo ${className}`.trim()} style={style} />
+  }
+
+  if (useUploadedPhoto) {
+    return <img src={avatarConfig.imageData} alt="Uploaded profile" className={`avatar avatar-photo ${className}`.trim()} style={style} />
   }
 
   return (
@@ -139,6 +146,14 @@ export default function PersonalDashboard() {
           headers: { Accept: 'image/*', 'X-Requested-With': 'fetch' },
         })
 
+        if (res.status === 204) {
+          if (!cancelled) {
+            setTelegramPhotoReady(false)
+            setTelegramPhotoUrl('')
+          }
+          return
+        }
+
         if (!res.ok) throw new Error('Telegram photo unavailable')
 
         const blob = await res.blob()
@@ -167,7 +182,11 @@ export default function PersonalDashboard() {
     () => presetThemes.find(preset => matchesPreset(theme, avatarConfig, preset))?.name || '',
     [theme, avatarConfig],
   )
-  const avatarModeLabel = avatarConfig.source === 'telegram' && telegramPhotoReady ? 'Telegram photo' : 'Custom avatar'
+  const avatarModeLabel = avatarConfig.source === 'telegram' && telegramPhotoReady
+    ? 'Telegram photo'
+    : avatarConfig.source === 'upload' && avatarConfig.imageData
+      ? 'Uploaded photo'
+      : 'Custom avatar'
 
   if (loading) return <div className="main"><PersonalSkeleton /></div>
   if (error)   return <div className="main"><ErrorBox message={error} /></div>
@@ -220,6 +239,35 @@ export default function PersonalDashboard() {
   function useCustomAvatar() {
     setAvatarConfig((current) => ({ ...current, source: 'custom' }))
     setSaveStatus({ saving: false, error: '', ok: '' })
+  }
+
+  function onUploadProfilePhoto(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setSaveStatus({ saving: false, error: 'Please select an image file', ok: '' })
+      return
+    }
+    if (file.size > 450 * 1024) {
+      setSaveStatus({ saving: false, error: 'Image is too large (max 450KB)', ok: '' })
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : ''
+      if (!result.startsWith('data:image/')) {
+        setSaveStatus({ saving: false, error: 'Unsupported image format', ok: '' })
+        return
+      }
+      setAvatarConfig((current) => ({ ...current, source: 'upload', imageData: result }))
+      setSaveStatus({ saving: false, error: '', ok: 'Uploaded photo selected' })
+    }
+    reader.onerror = () => {
+      setSaveStatus({ saving: false, error: 'Failed to read the selected file', ok: '' })
+    }
+    reader.readAsDataURL(file)
   }
 
   async function saveProfileSettings() {
@@ -290,7 +338,7 @@ export default function PersonalDashboard() {
               <h2>Profile</h2>
               <p>{activePreset ? `${activePreset} preset active` : avatarModeLabel}</p>
               <small>
-                Theme: {theme === 'light' ? 'Light' : 'Dark'} &middot; Source: {avatarConfig.source === 'telegram' && telegramPhotoReady ? 'Telegram photo' : 'Custom avatar'}
+                Theme: {theme === 'light' ? 'Light' : 'Dark'} &middot; Source: {avatarModeLabel}
               </small>
             </div>
           </div>
@@ -324,10 +372,14 @@ export default function PersonalDashboard() {
               >
                 Use Custom Avatar
               </button>
+              <label className={`btn ${avatarConfig.source === 'upload' ? 'btn-save' : 'btn-cancel'} upload-btn`}>
+                Upload Photo
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={onUploadProfilePhoto} />
+              </label>
               <small>
                 {telegramPhotoReady
-                  ? 'Your current Telegram profile photo is available to use here.'
-                  : 'No Telegram profile photo was found, so custom avatar mode is active.'}
+                  ? 'Choose Telegram photo, upload your own, or use a custom avatar style.'
+                  : 'No Telegram profile photo was found. You can upload one from your device or use custom avatar mode.'}
               </small>
             </div>
 
@@ -340,7 +392,7 @@ export default function PersonalDashboard() {
               </label>
             </div>
 
-            {avatarConfig.source !== 'telegram' && (
+            {avatarConfig.source === 'custom' && (
               <>
                 <div className="preset-gallery">
                   {presetThemes.map((preset) => {
@@ -406,9 +458,19 @@ export default function PersonalDashboard() {
               </div>
             )}
 
+            {avatarConfig.source === 'upload' && (
+              <div className="telegram-photo-preview">
+                <ProfileAvatar avatarConfig={avatarConfig} initials={initials} telegramPhotoUrl={telegramPhotoUrl} className="avatar-telegram-large" />
+                <div>
+                  <strong>Uploaded profile photo</strong>
+                  <p>This image from your device will be used as your dashboard profile image after save.</p>
+                </div>
+              </div>
+            )}
+
             <div className="avatar-actions">
-              {avatarConfig.source !== 'telegram' && <button type="button" className="btn btn-edit" onClick={randomizeAvatar}>Randomize</button>}
-              {avatarConfig.source !== 'telegram' && <button type="button" className="btn btn-cancel" onClick={resetAvatar}>Reset Avatar</button>}
+              {avatarConfig.source === 'custom' && <button type="button" className="btn btn-edit" onClick={randomizeAvatar}>Randomize</button>}
+              {avatarConfig.source === 'custom' && <button type="button" className="btn btn-cancel" onClick={resetAvatar}>Reset Avatar</button>}
               <button type="button" className="btn btn-cancel" onClick={closeProfileEditor}>Cancel</button>
               <button type="button" className="btn btn-save" onClick={saveProfileSettings} disabled={saveStatus.saving}>
                 {saveStatus.saving ? 'Saving...' : 'Save Profile Settings'}

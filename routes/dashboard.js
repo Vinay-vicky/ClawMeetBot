@@ -224,7 +224,7 @@ router.get("/api/me", requireJsonSession, async (req, res) => {
   }
 });
 
-router.post("/api/me/profile", requireJsonSession, express.json({ limit: "10kb" }), async (req, res) => {
+router.post("/api/me/profile", requireJsonSession, express.json({ limit: "1mb" }), async (req, res) => {
   const telegramId = req.session.tid;
   const incomingTheme = String(req.body?.profileTheme || "").toLowerCase();
   const profileTheme = incomingTheme === "light" ? "light" : "dark";
@@ -244,9 +244,22 @@ router.post("/api/me/profile", requireJsonSession, express.json({ limit: "10kb" 
   const accent = typeof incomingAvatar.accent === "string" ? incomingAvatar.accent.trim().slice(0, 32) : "#e6b84e";
   const fg = typeof incomingAvatar.fg === "string" ? incomingAvatar.fg.trim().slice(0, 32) : "#1a1305";
   const symbol = typeof incomingAvatar.symbol === "string" ? incomingAvatar.symbol.trim().slice(0, 2).toUpperCase() : "";
-  const source = incomingAvatar.source === "telegram" ? "telegram" : "custom";
+  const source = ["telegram", "upload"].includes(incomingAvatar.source) ? incomingAvatar.source : "custom";
+  const imageData = typeof incomingAvatar.imageData === "string"
+    ? incomingAvatar.imageData.trim().slice(0, 600000)
+    : "";
+  const isImageDataUrl = /^data:image\/(png|jpe?g|webp|gif);base64,/i.test(imageData);
 
-  const avatarConfig = { shape, pattern, bg, accent, fg, symbol, source };
+  const avatarConfig = {
+    shape,
+    pattern,
+    bg,
+    accent,
+    fg,
+    symbol,
+    source,
+    imageData: source === "upload" && isImageDataUrl ? imageData : "",
+  };
 
   try {
     await updateUserProfileSettings(telegramId, profileTheme, JSON.stringify(avatarConfig));
@@ -261,12 +274,12 @@ router.post("/api/me/profile", requireJsonSession, express.json({ limit: "10kb" 
 router.get("/api/me/telegram-photo", requireJsonSession, async (req, res) => {
   try {
     const photoUrl = await getTelegramProfilePhotoFileUrl(req.session.tid);
-    if (!photoUrl) return res.status(404).json({ error: "Telegram profile photo not found" });
+    if (!photoUrl) return res.status(204).end();
 
     const photoRes = await fetch(photoUrl);
     if (!photoRes.ok) {
       logger.warn(`Telegram photo fetch failed with status ${photoRes.status} for user ${req.session.tid}`);
-      return res.status(404).json({ error: "Telegram profile photo not available" });
+      return res.status(204).end();
     }
 
     const contentType = photoRes.headers.get("content-type") || "image/jpeg";

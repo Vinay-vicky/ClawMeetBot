@@ -261,6 +261,8 @@ code{background:#0d1320;border:1px solid var(--border);padding:2px 7px;border-ra
 .avatar-studio{margin-bottom:20px}
 .profile-source-toggle{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px}
 .profile-source-toggle small{flex-basis:100%;font-size:11px;color:var(--text-muted)}
+.profile-source-toggle .upload-btn{position:relative;overflow:hidden}
+.profile-source-toggle .upload-btn input{position:absolute;inset:0;opacity:0;cursor:pointer}
 .profile-theme-row{margin-bottom:14px}
 .profile-theme-row label{font-size:11px;color:var(--text-muted);display:flex;flex-direction:column;gap:5px;max-width:220px}
 .profile-theme-row select{padding:7px 9px;background:#0d1320;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-family:inherit;outline:none}
