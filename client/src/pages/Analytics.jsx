@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Spinner, ErrorBox } from '../components/KpiCard.jsx'
+import { AnalyticsSkeleton, ErrorBox } from '../components/KpiCard.jsx'
 import { useApi, scoreColor, backendUrl } from '../lib/utils.js'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -43,7 +43,7 @@ function AnalyticsLayout({ children }) {
 export default function Analytics() {
   const { data, loading, error } = useApi('/dashboard/api/team')
 
-  if (loading) return <AnalyticsLayout><Spinner /></AnalyticsLayout>
+  if (loading) return <AnalyticsLayout><AnalyticsSkeleton /></AnalyticsLayout>
   if (error)   return <AnalyticsLayout><ErrorBox message={error} /></AnalyticsLayout>
 
   const { meetStats, taskStats, analytics, productivityScore } = data

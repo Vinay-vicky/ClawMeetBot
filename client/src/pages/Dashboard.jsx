@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Layout from '../components/Layout.jsx'
-import { Spinner, ErrorBox } from '../components/KpiCard.jsx'
+import { DashboardSkeleton, ErrorBox } from '../components/KpiCard.jsx'
 import { useApi, fmtTime, deadlineClass, scoreColor, backendUrl } from '../lib/utils.js'
 
 export default function Dashboard() {
@@ -30,7 +30,7 @@ export default function Dashboard() {
     return () => clearInterval(t)
   }, [refresh])
 
-  if (loading) return <Layout><Spinner /></Layout>
+  if (loading) return <Layout><DashboardSkeleton /></Layout>
   if (error)   return <Layout><ErrorBox message={error} /></Layout>
 
   const { meetStats, taskStats, analytics, todayMeetings, meetings, tasks, productivityScore } = data

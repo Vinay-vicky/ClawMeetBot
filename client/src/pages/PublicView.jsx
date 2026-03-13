@@ -1,12 +1,12 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useApi, fmtTime } from '../lib/utils.js'
-import { Spinner, ErrorBox } from '../components/KpiCard.jsx'
+import { PublicSkeleton, ErrorBox } from '../components/KpiCard.jsx'
 
 export default function PublicView() {
   const { data, loading, error } = useApi('/dashboard/api/public')
   const { search } = useLocation()
 
-  if (loading) return <div className="main"><Spinner /></div>
+  if (loading) return <div className="main"><PublicSkeleton /></div>
   if (error)   return <div className="main"><ErrorBox message={error} /></div>
 
   const { meetStats, taskStats, analytics, meetings } = data

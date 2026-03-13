@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Spinner, ErrorBox } from '../components/KpiCard.jsx'
+import { PersonalSkeleton, ErrorBox } from '../components/KpiCard.jsx'
 import { useApi, backendUrl } from '../lib/utils.js'
 
 export default function PersonalDashboard() {
@@ -9,7 +9,7 @@ export default function PersonalDashboard() {
   const [editingNote, setEditingNote] = useState(null)
   const { search } = useLocation()
 
-  if (loading) return <div className="main"><Spinner /></div>
+  if (loading) return <div className="main"><PersonalSkeleton /></div>
   if (error)   return <div className="main"><ErrorBox message={error} /></div>
 
   const { user, tasks, notes } = data

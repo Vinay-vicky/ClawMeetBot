@@ -1,4 +1,4 @@
-﻿import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+﻿import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Login from './pages/Login.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Analytics from './pages/Analytics.jsx'
@@ -7,9 +7,11 @@ import PublicView from './pages/PublicView.jsx'
 import DeveloperAPI from './pages/DeveloperAPI.jsx'
 import { routerBasename } from './lib/config.js'
 
-export default function App() {
+function AppRoutes() {
+  const location = useLocation()
+
   return (
-    <BrowserRouter basename={routerBasename}>
+    <div className="route-fade" key={location.pathname + location.search}>
       <Routes>
         <Route path="/"          element={<Navigate to="/team" replace />} />
         <Route path="/login"     element={<Login />} />
@@ -19,6 +21,14 @@ export default function App() {
         <Route path="/public"    element={<PublicView />} />
         <Route path="/developer" element={<DeveloperAPI />} />
       </Routes>
+    </div>
+  )
+}
+
+export default function App() {
+  return (
+    <BrowserRouter basename={routerBasename}>
+      <AppRoutes />
     </BrowserRouter>
   )
 }
