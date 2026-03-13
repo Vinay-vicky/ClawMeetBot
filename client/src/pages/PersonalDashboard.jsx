@@ -4,6 +4,7 @@ import { PersonalSkeleton, ErrorBox } from '../components/KpiCard.jsx'
 import { useApi, backendUrl, getStoredTheme, setStoredTheme } from '../lib/utils.js'
 
 const defaultAvatar = {
+  source: 'custom',
   shape: 'circle',
   pattern: 'gradient',
   bg: '#f6d37a',
@@ -40,6 +41,7 @@ const presetThemes = [
 function safeAvatar(rawAvatar) {
   if (!rawAvatar || typeof rawAvatar !== 'object') return { ...defaultAvatar }
   return {
+    source: rawAvatar.source === 'telegram' ? 'telegram' : defaultAvatar.source,
     shape: ['circle', 'rounded', 'square'].includes(rawAvatar.shape) ? rawAvatar.shape : defaultAvatar.shape,
     pattern: ['solid', 'gradient', 'ring'].includes(rawAvatar.pattern) ? rawAvatar.pattern : defaultAvatar.pattern,
     bg: typeof rawAvatar.bg === 'string' ? rawAvatar.bg : defaultAvatar.bg,
@@ -73,13 +75,30 @@ function matchesPreset(theme, avatarConfig, preset) {
   return theme === preset.profileTheme && JSON.stringify(safeAvatar(avatarConfig)) === JSON.stringify(safeAvatar(preset.avatarConfig))
 }
 
+function ProfileAvatar({ avatarConfig, initials, telegramPhotoUrl, className = '', style }) {
+  const useTelegramPhoto = avatarConfig.source === 'telegram' && telegramPhotoUrl
+
+  if (useTelegramPhoto) {
+    return <img src={telegramPhotoUrl} alt="Telegram profile" className={`avatar avatar-photo ${className}`.trim()} style={style} />
+  }
+
+  return (
+    <div className={`avatar ${className}`.trim()} style={{ ...avatarStyle(avatarConfig), ...style }}>
+      {avatarConfig.symbol || initials}
+    </div>
+  )
+}
+
 export default function PersonalDashboard() {
   const { data, loading, error, refresh } = useApi('/dashboard/api/me')
   const [editingTask, setEditingTask] = useState(null)
   const [editingNote, setEditingNote] = useState(null)
+  const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false)
   const [theme, setTheme] = useState(getStoredTheme())
   const [avatarConfig, setAvatarConfig] = useState(defaultAvatar)
   const [saveStatus, setSaveStatus] = useState({ saving: false, error: '', ok: '' })
+  const [telegramPhotoUrl, setTelegramPhotoUrl] = useState('')
+  const [telegramPhotoReady, setTelegramPhotoReady] = useState(false)
   const { search } = useLocation()
 
   const user = data?.user || null
@@ -103,21 +122,55 @@ export default function PersonalDashboard() {
     setAvatarConfig(nextAvatar)
   }, [user?.profile_theme, user?.avatar_config])
 
-  const avatarPreviewStyle = useMemo(() => avatarStyle(avatarConfig), [avatarConfig])
+  useEffect(() => {
+    let cancelled = false
+    let objectUrl = ''
+
+    async function loadTelegramPhoto() {
+      if (!user?.telegram_id) {
+        setTelegramPhotoReady(false)
+        setTelegramPhotoUrl('')
+        return
+      }
+
+      try {
+        const res = await fetch(backendUrl('/dashboard/api/me/telegram-photo'), {
+          credentials: 'include',
+          headers: { Accept: 'image/*', 'X-Requested-With': 'fetch' },
+        })
+
+        if (!res.ok) throw new Error('Telegram photo unavailable')
+
+        const blob = await res.blob()
+        objectUrl = URL.createObjectURL(blob)
+        if (!cancelled) {
+          setTelegramPhotoUrl(objectUrl)
+          setTelegramPhotoReady(true)
+        }
+      } catch {
+        if (!cancelled) {
+          setTelegramPhotoReady(false)
+          setTelegramPhotoUrl('')
+        }
+      }
+    }
+
+    loadTelegramPhoto()
+
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [user?.telegram_id])
+
   const activePreset = useMemo(
     () => presetThemes.find(preset => matchesPreset(theme, avatarConfig, preset))?.name || '',
     [theme, avatarConfig],
   )
+  const avatarModeLabel = avatarConfig.source === 'telegram' && telegramPhotoReady ? 'Telegram photo' : 'Custom avatar'
 
   if (loading) return <div className="main"><PersonalSkeleton /></div>
   if (error)   return <div className="main"><ErrorBox message={error} /></div>
-
-  function toggleTheme() {
-    const next = theme === 'light' ? 'dark' : 'light'
-    setTheme(next)
-    setStoredTheme(next)
-    setSaveStatus({ saving: false, error: '', ok: '' })
-  }
 
   function randomizeAvatar() {
     const a = avatarPalette[Math.floor(Math.random() * avatarPalette.length)]
@@ -132,20 +185,41 @@ export default function PersonalDashboard() {
       accent: b,
       fg: c,
       symbol: initials,
+      source: 'custom',
     })
     setSaveStatus({ saving: false, error: '', ok: '' })
   }
 
   function resetAvatar() {
-    setAvatarConfig({ ...defaultAvatar })
+    setAvatarConfig({ ...defaultAvatar, symbol: initials })
     setSaveStatus({ saving: false, error: '', ok: '' })
   }
 
   function applyPreset(preset) {
     setTheme(preset.profileTheme)
     setStoredTheme(preset.profileTheme)
-    setAvatarConfig({ ...safeAvatar(preset.avatarConfig) })
+    setAvatarConfig({ ...safeAvatar(preset.avatarConfig), source: 'custom' })
     setSaveStatus({ saving: false, error: '', ok: `${preset.name} preset ready to save` })
+  }
+
+  function openProfileEditor() {
+    setSaveStatus({ saving: false, error: '', ok: '' })
+    setIsProfileEditorOpen(true)
+  }
+
+  function closeProfileEditor() {
+    setIsProfileEditorOpen(false)
+  }
+
+  function useTelegramPhoto() {
+    if (!telegramPhotoReady) return
+    setAvatarConfig((current) => ({ ...current, source: 'telegram' }))
+    setSaveStatus({ saving: false, error: '', ok: '' })
+  }
+
+  function useCustomAvatar() {
+    setAvatarConfig((current) => ({ ...current, source: 'custom' }))
+    setSaveStatus({ saving: false, error: '', ok: '' })
   }
 
   async function saveProfileSettings() {
@@ -160,6 +234,7 @@ export default function PersonalDashboard() {
       const payload = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(payload.error || 'Unable to save profile settings')
       setSaveStatus({ saving: false, error: '', ok: 'Profile updated' })
+      setIsProfileEditorOpen(false)
       refresh()
     } catch (e) {
       setSaveStatus({ saving: false, error: e.message || 'Save failed', ok: '' })
@@ -185,7 +260,7 @@ export default function PersonalDashboard() {
     <div>
       <div className="hdr">
         <div className="hdr-left">
-          <div className="avatar" style={avatarPreviewStyle}>{avatarConfig.symbol || initials}</div>
+          <ProfileAvatar avatarConfig={avatarConfig} initials={initials} telegramPhotoUrl={telegramPhotoUrl} />
           <div>
             <div className="hdr-title">Welcome, {name}</div>
             <div className="hdr-sub">My Workspace &middot; {now}</div>
@@ -194,7 +269,7 @@ export default function PersonalDashboard() {
         <div className="nav">
           <Link to={'/public' + search}>Team View</Link>
           <Link to={'/team' + search}>Team Dashboard</Link>
-          <button type="button" className="refresh" onClick={toggleTheme}>{theme === 'light' ? 'Dark Mode' : 'Light Mode'}</button>
+          <button type="button" className="refresh" onClick={openProfileEditor}>Edit Profile</button>
           <a href={backendUrl('/dashboard/logout')} className="danger">Logout</a>
         </div>
       </div>
@@ -208,72 +283,139 @@ export default function PersonalDashboard() {
           <div className="sc"><div className="val" style={{ fontSize:14 }}>{String(user?.telegram_id || '—')}</div><div className="lbl">Telegram ID</div></div>
         </div>
 
-        <div className="card avatar-studio">
-          <div className="card-hdr">
-            <h2>Avatar Studio</h2>
-            <span>{activePreset ? `${activePreset} preset selected` : 'Customize your profile look'}</span>
-          </div>
-          <div className="preset-gallery">
-            {presetThemes.map((preset) => {
-              const previewStyle = avatarStyle(preset.avatarConfig)
-              const isActive = activePreset === preset.name
-              return (
-                <button
-                  key={preset.name}
-                  type="button"
-                  className={`preset-card${isActive ? ' active' : ''}`}
-                  onClick={() => applyPreset(preset)}
-                >
-                  <div className="preset-card-top">
-                    <div className="avatar preset-avatar" style={previewStyle}>{preset.avatarConfig.symbol || initials}</div>
-                    <div>
-                      <strong>{preset.name}</strong>
-                      <span>{preset.profileTheme === 'light' ? 'Light mode' : 'Dark mode'}</span>
-                    </div>
-                  </div>
-                  <small>{preset.avatarConfig.pattern} &middot; {preset.avatarConfig.shape}</small>
-                </button>
-              )
-            })}
-          </div>
-          <div className="avatar-studio-grid">
-            <div className="avatar-preview-wrap">
-              <div className="avatar avatar-preview" style={avatarPreviewStyle}>{avatarConfig.symbol || initials}</div>
-              <small>Live preview</small>
-            </div>
-            <div className="avatar-controls">
-              <label>Style
-                <select value={avatarConfig.pattern} onChange={e => setAvatarConfig(v => ({ ...v, pattern: e.target.value }))}>
-                  <option value="gradient">Gradient</option>
-                  <option value="solid">Solid</option>
-                  <option value="ring">Ring</option>
-                </select>
-              </label>
-              <label>Shape
-                <select value={avatarConfig.shape} onChange={e => setAvatarConfig(v => ({ ...v, shape: e.target.value }))}>
-                  <option value="circle">Circle</option>
-                  <option value="rounded">Rounded Square</option>
-                  <option value="square">Square</option>
-                </select>
-              </label>
-              <label>Initials / Symbol
-                <input value={avatarConfig.symbol} maxLength={2} onChange={e => setAvatarConfig(v => ({ ...v, symbol: e.target.value.toUpperCase() }))} placeholder={initials} />
-              </label>
-              <label>Primary Color <input type="color" value={avatarConfig.bg} onChange={e => setAvatarConfig(v => ({ ...v, bg: e.target.value }))} /></label>
-              <label>Accent Color <input type="color" value={avatarConfig.accent} onChange={e => setAvatarConfig(v => ({ ...v, accent: e.target.value }))} /></label>
-              <label>Text Color <input type="color" value={avatarConfig.fg} onChange={e => setAvatarConfig(v => ({ ...v, fg: e.target.value }))} /></label>
+        <div className="card profile-summary-card">
+          <div className="profile-summary-main">
+            <ProfileAvatar avatarConfig={avatarConfig} initials={initials} telegramPhotoUrl={telegramPhotoUrl} className="avatar-preview" />
+            <div className="profile-summary-copy">
+              <h2>Profile</h2>
+              <p>{activePreset ? `${activePreset} preset active` : avatarModeLabel}</p>
+              <small>
+                Theme: {theme === 'light' ? 'Light' : 'Dark'} &middot; Source: {avatarConfig.source === 'telegram' && telegramPhotoReady ? 'Telegram photo' : 'Custom avatar'}
+              </small>
             </div>
           </div>
-          <div className="avatar-actions">
-            <button type="button" className="btn btn-edit" onClick={randomizeAvatar}>Randomize</button>
-            <button type="button" className="btn btn-cancel" onClick={resetAvatar}>Reset Avatar</button>
-            <button type="button" className="btn btn-save" onClick={saveProfileSettings} disabled={saveStatus.saving}>
-              {saveStatus.saving ? 'Saving...' : 'Save Profile Settings'}
-            </button>
+          <div className="profile-summary-actions">
+            <button type="button" className="btn btn-edit" onClick={openProfileEditor}>Edit Profile</button>
             {saveStatus.ok && <span className="profile-ok">{saveStatus.ok}</span>}
             {saveStatus.error && <span className="profile-err">{saveStatus.error}</span>}
           </div>
         </div>
+
+        {isProfileEditorOpen && (
+          <div className="card avatar-studio">
+            <div className="card-hdr">
+              <h2>Edit Profile</h2>
+              <span>{activePreset ? `${activePreset} preset selected` : 'Customize your profile look'}</span>
+            </div>
+
+            <div className="profile-source-toggle" role="group" aria-label="Profile image source">
+              <button
+                type="button"
+                className={`btn ${avatarConfig.source === 'telegram' && telegramPhotoReady ? 'btn-save' : 'btn-cancel'}`}
+                onClick={useTelegramPhoto}
+                disabled={!telegramPhotoReady}
+              >
+                Use Telegram Photo
+              </button>
+              <button
+                type="button"
+                className={`btn ${avatarConfig.source === 'custom' || !telegramPhotoReady ? 'btn-save' : 'btn-cancel'}`}
+                onClick={useCustomAvatar}
+              >
+                Use Custom Avatar
+              </button>
+              <small>
+                {telegramPhotoReady
+                  ? 'Your current Telegram profile photo is available to use here.'
+                  : 'No Telegram profile photo was found, so custom avatar mode is active.'}
+              </small>
+            </div>
+
+            <div className="profile-theme-row">
+              <label>Theme
+                <select value={theme} onChange={e => { setTheme(e.target.value); setStoredTheme(e.target.value); setSaveStatus({ saving: false, error: '', ok: '' }) }}>
+                  <option value="dark">Dark</option>
+                  <option value="light">Light</option>
+                </select>
+              </label>
+            </div>
+
+            {avatarConfig.source !== 'telegram' && (
+              <>
+                <div className="preset-gallery">
+                  {presetThemes.map((preset) => {
+                    const previewStyle = avatarStyle(preset.avatarConfig)
+                    const isActive = activePreset === preset.name
+                    return (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        className={`preset-card${isActive ? ' active' : ''}`}
+                        onClick={() => applyPreset(preset)}
+                      >
+                        <div className="preset-card-top">
+                          <div className="avatar preset-avatar" style={previewStyle}>{preset.avatarConfig.symbol || initials}</div>
+                          <div>
+                            <strong>{preset.name}</strong>
+                            <span>{preset.profileTheme === 'light' ? 'Light mode' : 'Dark mode'}</span>
+                          </div>
+                        </div>
+                        <small>{preset.avatarConfig.pattern} &middot; {preset.avatarConfig.shape}</small>
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="avatar-studio-grid">
+                  <div className="avatar-preview-wrap">
+                    <ProfileAvatar avatarConfig={avatarConfig} initials={initials} telegramPhotoUrl={telegramPhotoUrl} className="avatar-preview" />
+                    <small>Live preview</small>
+                  </div>
+                  <div className="avatar-controls">
+                    <label>Style
+                      <select value={avatarConfig.pattern} onChange={e => setAvatarConfig(v => ({ ...v, pattern: e.target.value, source: 'custom' }))}>
+                        <option value="gradient">Gradient</option>
+                        <option value="solid">Solid</option>
+                        <option value="ring">Ring</option>
+                      </select>
+                    </label>
+                    <label>Shape
+                      <select value={avatarConfig.shape} onChange={e => setAvatarConfig(v => ({ ...v, shape: e.target.value, source: 'custom' }))}>
+                        <option value="circle">Circle</option>
+                        <option value="rounded">Rounded Square</option>
+                        <option value="square">Square</option>
+                      </select>
+                    </label>
+                    <label>Initials / Symbol
+                      <input value={avatarConfig.symbol} maxLength={2} onChange={e => setAvatarConfig(v => ({ ...v, symbol: e.target.value.toUpperCase(), source: 'custom' }))} placeholder={initials} />
+                    </label>
+                    <label>Primary Color <input type="color" value={avatarConfig.bg} onChange={e => setAvatarConfig(v => ({ ...v, bg: e.target.value, source: 'custom' }))} /></label>
+                    <label>Accent Color <input type="color" value={avatarConfig.accent} onChange={e => setAvatarConfig(v => ({ ...v, accent: e.target.value, source: 'custom' }))} /></label>
+                    <label>Text Color <input type="color" value={avatarConfig.fg} onChange={e => setAvatarConfig(v => ({ ...v, fg: e.target.value, source: 'custom' }))} /></label>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {avatarConfig.source === 'telegram' && (
+              <div className="telegram-photo-preview">
+                <ProfileAvatar avatarConfig={avatarConfig} initials={initials} telegramPhotoUrl={telegramPhotoUrl} className="avatar-telegram-large" />
+                <div>
+                  <strong>Telegram profile photo</strong>
+                  <p>This will be used as your dashboard profile image after you save.</p>
+                </div>
+              </div>
+            )}
+
+            <div className="avatar-actions">
+              {avatarConfig.source !== 'telegram' && <button type="button" className="btn btn-edit" onClick={randomizeAvatar}>Randomize</button>}
+              {avatarConfig.source !== 'telegram' && <button type="button" className="btn btn-cancel" onClick={resetAvatar}>Reset Avatar</button>}
+              <button type="button" className="btn btn-cancel" onClick={closeProfileEditor}>Cancel</button>
+              <button type="button" className="btn btn-save" onClick={saveProfileSettings} disabled={saveStatus.saving}>
+                {saveStatus.saving ? 'Saving...' : 'Save Profile Settings'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Tasks + Notes */}
         <div className="g2">

@@ -145,6 +145,18 @@ function sendToGroup(message) {
     .catch((err) => logger.error("Send error:", err));
 }
 
+async function getTelegramProfilePhotoFileUrl(telegramId) {
+  const profilePhotos = await bot.getUserProfilePhotos(String(telegramId), { limit: 1 });
+  const photoSizes = profilePhotos?.photos?.[0];
+  if (!photoSizes || !photoSizes.length) return null;
+
+  const bestPhoto = photoSizes[photoSizes.length - 1];
+  const file = await bot.getFile(bestPhoto.file_id);
+  if (!file?.file_path) return null;
+
+  return `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+}
+
 // /start — welcome message
 bot.onText(/\/start/, (msg) => {
   const name = msg.from.first_name || "there";
@@ -1893,4 +1905,4 @@ bot.on("polling_error", (err) => logger.error("Polling error:", err));
 process.on("unhandledRejection", (reason) => logger.error("Unhandled Rejection:", reason));
 process.on("uncaughtException", (err) => logger.error("Uncaught Exception:", err));
 
-module.exports = { bot, sendToGroup };
+module.exports = { bot, sendToGroup, getTelegramProfilePhotoFileUrl };

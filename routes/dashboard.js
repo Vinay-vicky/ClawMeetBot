@@ -24,6 +24,7 @@ const {
   updatePersonalNote,
 } = require("../services/dbService");
 const { getScheduledMeetings } = require("../services/calendarService");
+const { getTelegramProfilePhotoFileUrl } = require("../services/telegramService");
 const logger = require("../utils/logger");
 
 const frontendUrl = (process.env.FRONTEND_URL || "").replace(/\/+$/, "");
@@ -243,8 +244,9 @@ router.post("/api/me/profile", requireJsonSession, express.json({ limit: "10kb" 
   const accent = typeof incomingAvatar.accent === "string" ? incomingAvatar.accent.trim().slice(0, 32) : "#e6b84e";
   const fg = typeof incomingAvatar.fg === "string" ? incomingAvatar.fg.trim().slice(0, 32) : "#1a1305";
   const symbol = typeof incomingAvatar.symbol === "string" ? incomingAvatar.symbol.trim().slice(0, 2).toUpperCase() : "";
+  const source = incomingAvatar.source === "telegram" ? "telegram" : "custom";
 
-  const avatarConfig = { shape, pattern, bg, accent, fg, symbol };
+  const avatarConfig = { shape, pattern, bg, accent, fg, symbol, source };
 
   try {
     await updateUserProfileSettings(telegramId, profileTheme, JSON.stringify(avatarConfig));
@@ -253,6 +255,28 @@ router.post("/api/me/profile", requireJsonSession, express.json({ limit: "10kb" 
   } catch (err) {
     logger.error("Profile update error:", err);
     return res.status(500).json({ error: "Failed to update profile settings" });
+  }
+});
+
+router.get("/api/me/telegram-photo", requireJsonSession, async (req, res) => {
+  try {
+    const photoUrl = await getTelegramProfilePhotoFileUrl(req.session.tid);
+    if (!photoUrl) return res.status(404).json({ error: "Telegram profile photo not found" });
+
+    const photoRes = await fetch(photoUrl);
+    if (!photoRes.ok) {
+      logger.warn(`Telegram photo fetch failed with status ${photoRes.status} for user ${req.session.tid}`);
+      return res.status(404).json({ error: "Telegram profile photo not available" });
+    }
+
+    const contentType = photoRes.headers.get("content-type") || "image/jpeg";
+    const buffer = Buffer.from(await photoRes.arrayBuffer());
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "private, max-age=300");
+    return res.send(buffer);
+  } catch (err) {
+    logger.error("Telegram profile photo error:", err);
+    return res.status(500).json({ error: "Failed to load Telegram profile photo" });
   }
 });
 
