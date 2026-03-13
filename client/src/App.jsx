@@ -6,10 +6,30 @@ import Dashboard from './pages/Dashboard.jsx'
 import { routerBasename } from './lib/config.js'
 import { applyTheme, getStoredTheme } from './lib/utils.js'
 
-const Analytics = lazy(() => import('./pages/Analytics.jsx'))
-const PersonalDashboard = lazy(() => import('./pages/PersonalDashboard.jsx'))
-const PublicView = lazy(() => import('./pages/PublicView.jsx'))
-const DeveloperAPI = lazy(() => import('./pages/DeveloperAPI.jsx'))
+function lazyWithRetry(loader, key) {
+  return lazy(() =>
+    loader().catch((error) => {
+      const retryKey = `cmbt-lazy-retry-${key}`
+      const hasRetried = window.sessionStorage.getItem(retryKey) === '1'
+
+      if (!hasRetried) {
+        window.sessionStorage.setItem(retryKey, '1')
+        window.location.reload()
+        return new Promise(() => {})
+      }
+
+      throw error
+    }).then((module) => {
+      window.sessionStorage.removeItem(`cmbt-lazy-retry-${key}`)
+      return module
+    }),
+  )
+}
+
+const Analytics = lazyWithRetry(() => import('./pages/Analytics.jsx'), 'analytics')
+const PersonalDashboard = lazyWithRetry(() => import('./pages/PersonalDashboard.jsx'), 'personal-dashboard')
+const PublicView = lazyWithRetry(() => import('./pages/PublicView.jsx'), 'public-view')
+const DeveloperAPI = lazyWithRetry(() => import('./pages/DeveloperAPI.jsx'), 'developer-api')
 
 function RouteFallback() {
   return (
