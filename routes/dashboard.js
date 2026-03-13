@@ -25,6 +25,11 @@ const {
 } = require("../services/dbService");
 const { getScheduledMeetings } = require("../services/calendarService");
 const { getTelegramProfilePhotoFileUrl } = require("../services/telegramService");
+const {
+  isCloudinaryConfigured,
+  uploadProfileImageDataUrl,
+  deleteImageByPublicId,
+} = require("../services/cloudinaryService");
 const logger = require("../utils/logger");
 
 const frontendUrl = (process.env.FRONTEND_URL || "").replace(/\/+$/, "");
@@ -147,6 +152,20 @@ function requireJsonSession(req, res, next) {
   next();
 }
 
+function safeParseAvatarConfig(value) {
+  if (!value || typeof value !== "string") return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isHttpUrl(value) {
+  return /^https?:\/\//i.test(String(value || ""));
+}
+
 router.post("/task/:id/done", authCheck, async (req, res) => {
   try {
     await markTaskDone(req.params.id);
@@ -248,7 +267,50 @@ router.post("/api/me/profile", requireJsonSession, express.json({ limit: "1mb" }
   const imageData = typeof incomingAvatar.imageData === "string"
     ? incomingAvatar.imageData.trim().slice(0, 600000)
     : "";
+  const imageUrl = typeof incomingAvatar.imageUrl === "string" ? incomingAvatar.imageUrl.trim().slice(0, 1024) : "";
+  const imagePublicId = typeof incomingAvatar.imagePublicId === "string" ? incomingAvatar.imagePublicId.trim().slice(0, 256) : "";
   const isImageDataUrl = /^data:image\/(png|jpe?g|webp|gif);base64,/i.test(imageData);
+
+  let uploadImageUrl = "";
+  let uploadPublicId = "";
+
+  try {
+    const existingUser = await getUserByTelegramId(telegramId);
+    const existingAvatar = safeParseAvatarConfig(existingUser?.avatar_config);
+    const existingUploadPublicId =
+      existingAvatar?.source === "upload" && typeof existingAvatar.imagePublicId === "string"
+        ? existingAvatar.imagePublicId
+        : "";
+
+    if (source === "upload") {
+      if (isImageDataUrl) {
+        if (!isCloudinaryConfigured()) {
+          return res.status(503).json({ error: "Image upload service is not configured" });
+        }
+        const uploaded = await uploadProfileImageDataUrl(imageData, telegramId);
+        uploadImageUrl = uploaded.secureUrl;
+        uploadPublicId = uploaded.publicId;
+
+        if (existingUploadPublicId && existingUploadPublicId !== uploadPublicId) {
+          deleteImageByPublicId(existingUploadPublicId).catch((err) => {
+            logger.warn(`Failed to remove previous profile image ${existingUploadPublicId}: ${err.message}`);
+          });
+        }
+      } else if (isHttpUrl(imageUrl)) {
+        uploadImageUrl = imageUrl;
+        uploadPublicId = imagePublicId;
+      } else {
+        return res.status(400).json({ error: "Please upload an image before saving" });
+      }
+    } else if (existingUploadPublicId) {
+      deleteImageByPublicId(existingUploadPublicId).catch((err) => {
+        logger.warn(`Failed to remove old upload ${existingUploadPublicId}: ${err.message}`);
+      });
+    }
+  } catch (err) {
+    logger.error("Profile image processing error:", err);
+    return res.status(500).json({ error: "Failed to process profile image" });
+  }
 
   const avatarConfig = {
     shape,
@@ -258,7 +320,9 @@ router.post("/api/me/profile", requireJsonSession, express.json({ limit: "1mb" }
     fg,
     symbol,
     source,
-    imageData: source === "upload" && isImageDataUrl ? imageData : "",
+    imageData: "",
+    imageUrl: source === "upload" ? uploadImageUrl : "",
+    imagePublicId: source === "upload" ? uploadPublicId : "",
   };
 
   try {

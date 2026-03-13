@@ -6,6 +6,8 @@ import { useApi, backendUrl, getStoredTheme, setStoredTheme } from '../lib/utils
 const defaultAvatar = {
   source: 'custom',
   imageData: '',
+  imageUrl: '',
+  imagePublicId: '',
   shape: 'circle',
   pattern: 'gradient',
   bg: '#f6d37a',
@@ -44,6 +46,8 @@ function safeAvatar(rawAvatar) {
   return {
     source: ['telegram', 'upload'].includes(rawAvatar.source) ? rawAvatar.source : defaultAvatar.source,
     imageData: typeof rawAvatar.imageData === 'string' ? rawAvatar.imageData.slice(0, 600000) : '',
+    imageUrl: typeof rawAvatar.imageUrl === 'string' ? rawAvatar.imageUrl.slice(0, 1024) : '',
+    imagePublicId: typeof rawAvatar.imagePublicId === 'string' ? rawAvatar.imagePublicId.slice(0, 256) : '',
     shape: ['circle', 'rounded', 'square'].includes(rawAvatar.shape) ? rawAvatar.shape : defaultAvatar.shape,
     pattern: ['solid', 'gradient', 'ring'].includes(rawAvatar.pattern) ? rawAvatar.pattern : defaultAvatar.pattern,
     bg: typeof rawAvatar.bg === 'string' ? rawAvatar.bg : defaultAvatar.bg,
@@ -79,14 +83,15 @@ function matchesPreset(theme, avatarConfig, preset) {
 
 function ProfileAvatar({ avatarConfig, initials, telegramPhotoUrl, className = '', style }) {
   const useTelegramPhoto = avatarConfig.source === 'telegram' && telegramPhotoUrl
-  const useUploadedPhoto = avatarConfig.source === 'upload' && avatarConfig.imageData
+  const uploadSrc = avatarConfig.imageUrl || avatarConfig.imageData
+  const useUploadedPhoto = avatarConfig.source === 'upload' && uploadSrc
 
   if (useTelegramPhoto) {
     return <img src={telegramPhotoUrl} alt="Telegram profile" className={`avatar avatar-photo ${className}`.trim()} style={style} />
   }
 
   if (useUploadedPhoto) {
-    return <img src={avatarConfig.imageData} alt="Uploaded profile" className={`avatar avatar-photo ${className}`.trim()} style={style} />
+    return <img src={uploadSrc} alt="Uploaded profile" className={`avatar avatar-photo ${className}`.trim()} style={style} />
   }
 
   return (
@@ -184,7 +189,7 @@ export default function PersonalDashboard() {
   )
   const avatarModeLabel = avatarConfig.source === 'telegram' && telegramPhotoReady
     ? 'Telegram photo'
-    : avatarConfig.source === 'upload' && avatarConfig.imageData
+    : avatarConfig.source === 'upload' && (avatarConfig.imageUrl || avatarConfig.imageData)
       ? 'Uploaded photo'
       : 'Custom avatar'
 
@@ -261,7 +266,7 @@ export default function PersonalDashboard() {
         setSaveStatus({ saving: false, error: 'Unsupported image format', ok: '' })
         return
       }
-      setAvatarConfig((current) => ({ ...current, source: 'upload', imageData: result }))
+      setAvatarConfig((current) => ({ ...current, source: 'upload', imageData: result, imageUrl: '', imagePublicId: '' }))
       setSaveStatus({ saving: false, error: '', ok: 'Uploaded photo selected' })
     }
     reader.onerror = () => {
@@ -273,11 +278,18 @@ export default function PersonalDashboard() {
   async function saveProfileSettings() {
     setSaveStatus({ saving: true, error: '', ok: '' })
     try {
+      const outboundAvatar = { ...avatarConfig }
+      if (outboundAvatar.source !== 'upload') {
+        outboundAvatar.imageData = ''
+      } else if (!String(outboundAvatar.imageData || '').startsWith('data:image/')) {
+        outboundAvatar.imageData = ''
+      }
+
       const res = await fetch(backendUrl('/dashboard/api/me/profile'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Requested-With': 'fetch' },
         credentials: 'include',
-        body: JSON.stringify({ profileTheme: theme, avatarConfig }),
+        body: JSON.stringify({ profileTheme: theme, avatarConfig: outboundAvatar }),
       })
       const payload = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(payload.error || 'Unable to save profile settings')
