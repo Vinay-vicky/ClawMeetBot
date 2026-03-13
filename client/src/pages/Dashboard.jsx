@@ -83,7 +83,7 @@ export default function Dashboard() {
   const navExtra = (
     <>
       <span className="countdown">Auto-refresh in <b style={{ color:'var(--text)' }}>{countdown}s</b></span>
-      <button onClick={refresh} className="refresh">↻ Refresh</button>
+      <button onClick={refresh} className="refresh">Refresh</button>
     </>
   )
 
@@ -102,7 +102,7 @@ export default function Dashboard() {
 
       {/* Upcoming meetings */}
       <div className="fc">
-        <h2>📅 Upcoming Meetings (next 24 hrs)</h2>
+        <h2>Upcoming Meetings (next 24 hours)</h2>
         <div className="table-scroll">
           <table>
             <thead><tr><th>Meeting</th><th>Start</th><th>Organizer</th><th>Link</th></tr></thead>
@@ -114,7 +114,7 @@ export default function Dashboard() {
                     <td>{m.subject || 'Meeting'}</td>
                     <td>{fmtTime(m.start?.dateTime || m.start_time)}</td>
                     <td>{m.organizer?.emailAddress?.name || m.organizer || '—'}</td>
-                    <td>{joinUrl ? <a href={joinUrl} target="_blank" rel="noreferrer" className="join">▶ Join</a> : '—'}</td>
+                    <td>{joinUrl ? <a href={joinUrl} target="_blank" rel="noreferrer" className="join">Join</a> : '—'}</td>
                   </tr>
                 )
               }) : <tr><td colSpan={4} className="empty">No upcoming meetings in the next 24 hrs</td></tr>}
@@ -125,7 +125,6 @@ export default function Dashboard() {
 
       {/* Analytics CTA — identical to original */}
       <div className="fc" style={{ background:'linear-gradient(135deg,#101624 0%,#0d1320 100%)', borderColor:'var(--brand)', textAlign:'center', padding:'28px 20px' }}>
-        <div style={{ fontSize:36, marginBottom:10 }}>📊</div>
         <div style={{ fontSize:16, fontWeight:600, color:'var(--brand)', marginBottom:8 }}>Team Analytics</div>
         <p style={{ color:'var(--text-muted)', fontSize:12, marginBottom:18, lineHeight:1.7 }}>
           Meetings per week &bull; Task completion &bull; Productivity score &bull; Top assignees &bull; Busiest days<br />
@@ -138,13 +137,13 @@ export default function Dashboard() {
           onFocus={prefetchAnalyticsRoute}
           style={{ display:'inline-block', background:'linear-gradient(90deg,var(--brand-strong),var(--brand))', color:'#1a1305', padding:'10px 28px', borderRadius:8, textDecoration:'none', fontSize:13, fontWeight:700 }}
         >
-          📊 View Analytics &rarr;
+          View Analytics &rarr;
         </Link>
       </div>
 
       {/* Pending Tasks */}
       <div className="fc">
-        <h2>✅ Pending Tasks <span style={{ color:'var(--text-subtle)', fontWeight:400, textTransform:'none', letterSpacing:0 }}>(top 30 — click ✅ to complete)</span></h2>
+        <h2>Pending Tasks <span style={{ color:'var(--text-subtle)', fontWeight:400, textTransform:'none', letterSpacing:0 }}>(top 30 — click Done to complete)</span></h2>
         <div className="table-scroll">
           <table>
             <thead><tr><th>#</th><th>Person</th><th>Task</th><th>Deadline</th><th>Meeting</th><th></th></tr></thead>
@@ -159,11 +158,11 @@ export default function Dashboard() {
                     <td>{t.deadline ? <span className={"dlbadge" + (dlCls ? " " + dlCls : "")}>{t.deadline}</span> : '—'}</td>
                     <td>{t.meeting_subject || '—'}</td>
                     <td>
-                      <button className="donebtn" type="button" title="Mark complete" onClick={() => markDone(t.id)}>✅</button>
+                      <button className="donebtn" type="button" title="Mark complete" onClick={() => markDone(t.id)}>Done</button>
                     </td>
                   </tr>
                 )
-              }) : <tr><td colSpan={6} className="empty">No pending tasks 🎉</td></tr>}
+              }) : <tr><td colSpan={6} className="empty">No pending tasks</td></tr>}
             </tbody>
           </table>
         </div>
@@ -171,7 +170,7 @@ export default function Dashboard() {
 
       {/* Recent Meetings */}
       <div className="fc">
-        <h2>🕒 Recent Meetings</h2>
+        <h2>Recent Meetings</h2>
         <div className="table-scroll">
           <table>
             <thead><tr><th>Subject</th><th>Start</th><th>Organizer</th><th>Summary</th><th>Link</th></tr></thead>
@@ -182,7 +181,7 @@ export default function Dashboard() {
                   <td>{fmtTime(m.start_time)}</td>
                   <td>{m.organizer || '—'}</td>
                   <td>{m.summary ? <span className="badge g">✓ AI</span> : <span className="badge gr">—</span>}</td>
-                  <td>{m.join_url ? <a href={m.join_url} target="_blank" rel="noreferrer" className="join">▶ Join</a> : '—'}</td>
+                  <td>{m.join_url ? <a href={m.join_url} target="_blank" rel="noreferrer" className="join">Join</a> : '—'}</td>
                 </tr>
               )) : <tr><td colSpan={5} className="empty">No meetings yet</td></tr>}
             </tbody>

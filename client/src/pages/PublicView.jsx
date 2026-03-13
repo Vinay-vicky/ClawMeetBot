@@ -20,11 +20,11 @@ export default function PublicView() {
     <div>
       <div className="hdr">
         <div>
-          <h1>🤖 ClawMeet — Team Overview</h1>
+          <h1>ClawMeet — Team Overview</h1>
           <div className="sub">Public view &middot; {now}</div>
         </div>
         <div className="nav">
-          <Link to={'/login' + search}>🔐 My Dashboard</Link>
+          <Link to={'/login' + search}>My Dashboard</Link>
         </div>
       </div>
 
@@ -41,7 +41,7 @@ export default function PublicView() {
         <div className="g2">
           {/* Meetings per week bar chart */}
           <div className="card">
-            <h2>📊 Meetings per Week</h2>
+            <h2>Meetings per Week</h2>
             <div className="bc">
               {(analytics?.weeks || []).map((w, i) => {
                 const h = Math.max(4, Math.round((w.count / maxWk) * 80))
@@ -58,7 +58,7 @@ export default function PublicView() {
 
           {/* Task completion */}
           <div className="card">
-            <h2>✅ Task Completion</h2>
+            <h2>Task Completion</h2>
             <div style={{ fontSize:28, fontWeight:700, color:'#3fb950' }}>{rate}%</div>
             <div style={{ fontSize:11, color:'#8b949e', marginTop:2 }}>{done} done / {total} total</div>
             <div className="pbg"><div className="pb" style={{ width: rate + '%' }} /></div>
@@ -67,7 +67,7 @@ export default function PublicView() {
 
         {/* Recent Meetings */}
         <div className="fc">
-          <h2>🕒 Recent Meetings</h2>
+          <h2>Recent Meetings</h2>
           <div className="table-scroll">
             <table>
               <thead><tr><th>Subject</th><th>Start</th><th>Organizer</th><th>AI Summary</th></tr></thead>
@@ -89,7 +89,7 @@ export default function PublicView() {
         <div className="fc" style={{ textAlign:'center' }}>
           <p style={{ color:'var(--text-muted)', fontSize:13, marginBottom:12 }}>Want to see your personal tasks and notes?</p>
           <Link to={'/login' + search} style={{ background:'linear-gradient(90deg,var(--brand-strong),var(--brand))', color:'#1a1305', padding:'9px 22px', borderRadius:8, textDecoration:'none', fontSize:13, display:'inline-block', fontWeight:700 }}>
-            🔐 Log in with Telegram Link Token
+            Log in with Telegram Link Token
           </Link>
         </div>
       </div>

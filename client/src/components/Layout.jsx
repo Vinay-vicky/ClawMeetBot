@@ -5,16 +5,16 @@ export default function Layout({ title, subtitle, mainClass, navExtra, children 
   const { pathname, search } = useLocation()
 
   const navLinks = [
-    { to: '/analytics', href: null, label: '📊 Analytics' },
-    { to: '/public',    href: null, label: '👥 Team View' },
-    { to: '/me',        href: null, label: '👤 My Dashboard' },
+    { to: '/analytics', href: null, label: 'Analytics' },
+    { to: '/public',    href: null, label: 'Team View' },
+    { to: '/me',        href: null, label: 'My Dashboard' },
   ]
 
   return (
     <div>
       <div className="hdr">
         <div>
-          <h1>✦ Zunoverse • ClawMeet Dashboard</h1>
+          <h1>Zunoverse • ClawMeet Dashboard</h1>
           {subtitle && <div className="sub">{subtitle}</div>}
         </div>
         <div className="hdr-right">
@@ -35,7 +35,7 @@ export default function Layout({ title, subtitle, mainClass, navExtra, children 
         Zunoverse x ClawMeet &bull; Human-first AI &bull; Node.js &bull;{' '}
         <a href="https://github.com/Vinay-vicky/ClawMeetBot" target="_blank" rel="noreferrer" style={{ color:'var(--brand)', textDecoration:'none' }}>GitHub</a>
         {' '}&bull;{' '}
-        <Link to={'/developer' + search} style={{ color:'var(--text-subtle)', textDecoration:'none', fontSize:10 }}>🔧 Developer API</Link>
+        <Link to={'/developer' + search} style={{ color:'var(--text-subtle)', textDecoration:'none', fontSize:10 }}>Developer API</Link>
       </div>
     </div>
   )

@@ -21,13 +21,13 @@ function AnalyticsLayout({ children }) {
     <div>
       <div className="hdr">
         <div>
-          <h1>📊 Team Analytics</h1>
+          <h1>Team Analytics</h1>
           <div className="sub"><span className="live-dot" /> Charts &amp; metrics overview</div>
         </div>
         <div className="hdr-right">
-          <Link to={'/team' + search}    className="refresh">🏠 Team Dashboard</Link>
-          <Link to={'/public' + search}  className="refresh">👥 Team View</Link>
-          <Link to={'/me' + search}      className="refresh">👤 My Dashboard</Link>
+          <Link to={'/team' + search}    className="refresh">Team Dashboard</Link>
+          <Link to={'/public' + search}  className="refresh">Team View</Link>
+          <Link to={'/me' + search}      className="refresh">My Dashboard</Link>
           <a href={backendUrl('/dashboard/logout')} className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
         </div>
       </div>
@@ -58,9 +58,9 @@ export default function Analytics() {
   const pColor    = scoreColor(productivityScore)
 
   const radarData = [
-    { subject: 'Tasks ✅',       A: Math.round(rate) },
-    { subject: 'AI Coverage 🤖', A: aiCov },
-    { subject: 'Activity 📅',   A: actScore },
+    { subject: 'Tasks',       A: Math.round(rate) },
+    { subject: 'AI Coverage', A: aiCov },
+    { subject: 'Activity',    A: actScore },
   ]
   const donutData = [
     { name: 'Done',    value: done },
@@ -69,7 +69,7 @@ export default function Analytics() {
 
   return (
     <AnalyticsLayout>
-      <div className="page-title">📊 Analytics Overview</div>
+      <div className="page-title">Analytics Overview</div>
       <div className="page-sub">All meeting and productivity metrics — each chart in its own focused space</div>
 
       {/* KPIs */}

@@ -47,11 +47,11 @@ export default function Login() {
   return (
     <div className="login-wrap">
       <div className="box">
-        <div className="logo-icon">🔐</div>
+        <div className="logo-icon">CM</div>
         <div className="logo-title">ClawMeet Dashboard</div>
         <div className="logo-sub">Sign in with your personal link token to view your workspace.</div>
 
-  {error && <div className="msg-err">❌ {error}</div>}
+      {error && <div className="msg-err">{error}</div>}
   {!error && message && <div className="msg-ok">✓ {message}</div>}
 
         <form onSubmit={handleSubmit}>
@@ -79,7 +79,7 @@ export default function Login() {
         </div>
 
         <Link to="/public" className="pub-link">
-          👁 View public team overview (no login)
+          View public team overview (no login)
         </Link>
       </div>
     </div>

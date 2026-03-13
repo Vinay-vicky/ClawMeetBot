@@ -44,9 +44,9 @@ export default function PersonalDashboard() {
           </div>
         </div>
         <div className="nav">
-          <Link to={'/public' + search}>👥 Team View</Link>
-          <Link to={'/team' + search}>🏠 Team Dashboard</Link>
-          <a href={backendUrl('/dashboard/logout')} className="danger">⏏ Logout</a>
+          <Link to={'/public' + search}>Team View</Link>
+          <Link to={'/team' + search}>Team Dashboard</Link>
+          <a href={backendUrl('/dashboard/logout')} className="danger">Logout</a>
         </div>
       </div>
 
@@ -65,7 +65,7 @@ export default function PersonalDashboard() {
           {/* TASKS CARD */}
           <div className="card">
             <div className="card-hdr">
-              <h2>📋 My Tasks</h2>
+              <h2>My Tasks</h2>
               <span>{tasks?.length ?? 0} pending</span>
             </div>
             <form onSubmit={async e => { e.preventDefault(); const f = new FormData(e.target); await post('/dashboard/me/task/add', { task: f.get('task'), deadline: f.get('deadline') || '' }); e.target.reset() }} className="add-form">
@@ -86,9 +86,9 @@ export default function PersonalDashboard() {
                         <td className="task-actions">
                           <button type="button" className="btn btn-done" onClick={() => post('/dashboard/me/task/' + t.id + '/done', {})}>✓ Done</button>
                           {' '}
-                          <button type="button" className="btn btn-edit" onClick={() => setEditingTask(editingTask === t.id ? null : t.id)}>✎ Edit</button>
+                          <button type="button" className="btn btn-edit" onClick={() => setEditingTask(editingTask === t.id ? null : t.id)}>Edit</button>
                           {' '}
-                          <button type="button" className="btn btn-del" onClick={async () => { if (window.confirm('Delete this task?')) await post('/dashboard/me/task/' + t.id + '/delete', {}) }}>🗑</button>
+                          <button type="button" className="btn btn-del" onClick={async () => { if (window.confirm('Delete this task?')) await post('/dashboard/me/task/' + t.id + '/delete', {}) }}>Delete</button>
                         </td>
                       </tr>,
                       editingTask === t.id && (
@@ -104,7 +104,7 @@ export default function PersonalDashboard() {
                         </tr>
                       )
                     ]
-                  }) : <tr><td colSpan={3} className="empty">No pending tasks 🎉<br/><small>Use the form above to add one</small></td></tr>}
+                  }) : <tr><td colSpan={3} className="empty">No pending tasks<br/><small>Use the form above to add one</small></td></tr>}
                 </tbody>
               </table>
             </div>
@@ -113,7 +113,7 @@ export default function PersonalDashboard() {
           {/* NOTES CARD */}
           <div className="card">
             <div className="card-hdr">
-              <h2>🗒 My Notes</h2>
+              <h2>My Notes</h2>
               <span>{notes?.length ?? 0} notes</span>
             </div>
             <div className="notes-scroll">
@@ -135,8 +135,8 @@ export default function PersonalDashboard() {
                   <div className="note-meta">
                     <span className="note-date">{n.created_at ? n.created_at.substring(0, 10) : ''}</span>
                     <div className="note-act">
-                      <button type="button" className="btn btn-edit" onClick={() => setEditingNote(editingNote === n.id ? null : n.id)} title="Edit">✎</button>
-                      <button type="button" className="btn btn-del" title="Delete" onClick={async () => { if (window.confirm('Delete this note?')) await post('/dashboard/me/note/' + n.id + '/delete', {}) }}>🗑</button>
+                      <button type="button" className="btn btn-edit" onClick={() => setEditingNote(editingNote === n.id ? null : n.id)} title="Edit">Edit</button>
+                      <button type="button" className="btn btn-del" title="Delete" onClick={async () => { if (window.confirm('Delete this note?')) await post('/dashboard/me/note/' + n.id + '/delete', {}) }}>Delete</button>
                     </div>
                   </div>
                 </div>
