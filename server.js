@@ -14,6 +14,7 @@ const dashboardRouter = require("./routes/dashboard");
 const authRouter   = require("./routes/auth");
 const tasksRouter  = require("./routes/tasks");
 const notesRouter  = require("./routes/notes");
+const healthRouter = require("./routes/health");
 
 // ── Sentry (error monitoring) ─────────────────────────────────────────────────
 if (process.env.SENTRY_DSN) {
@@ -83,6 +84,7 @@ app.use(defaultLimiter);
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 app.use("/dashboard", dashboardRouter);
+app.use("/api", healthRouter);
 
 // ── Telegram webhook secret verification ─────────────────────────────────────
 function verifyTelegramSecret(req, res, next) {
