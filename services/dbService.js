@@ -256,6 +256,22 @@ async function getTaskStats() {
   };
 }
 
+/** Per-person task engagement snapshot for public/team views */
+async function getTaskEngagementByPerson() {
+  const res = await db.execute(`
+    SELECT
+      person,
+      COUNT(*) as total,
+      SUM(CASE WHEN done = 0 THEN 1 ELSE 0 END) as pending,
+      SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) as done
+    FROM tasks
+    WHERE person IS NOT NULL AND TRIM(person) != ''
+    GROUP BY person
+    ORDER BY pending DESC, total DESC, person ASC
+  `);
+  return res.rows;
+}
+
 /** Add a manual note to a meeting */
 async function addMeetingNote(meetingId, meetingSubject, note) {
   await db.execute({
@@ -437,6 +453,14 @@ async function getUserByTelegramId(telegramId) {
     args: [String(telegramId)],
   });
   return res.rows[0] || null;
+}
+
+/** Public-safe user profile directory for dashboard team cards */
+async function getUsersPublicProfiles() {
+  const res = await db.execute({
+    sql: "SELECT telegram_id, name, username, avatar_config FROM users ORDER BY created_at DESC",
+  });
+  return res.rows;
 }
 
 async function updateUserProfileSettings(telegramId, profileTheme, avatarConfig) {
@@ -636,6 +660,7 @@ module.exports = {
   getRecentMeetings, saveTask, getPendingTasks, markTaskDone,
   getMeetingByKeyword, getTasksByPerson,
   getMeetingStats, getTaskStats, addMeetingNote, getNotesByMeetingId,
+  getTaskEngagementByPerson,
   searchTasks, clearDoneTasks, editTask, getTaskById, getTasksWithDeadlines,
   saveAttendance, getAttendance,
   addTeamMember, getAllMembers, removeMemberByName,
@@ -645,6 +670,7 @@ module.exports = {
   addPersonalNote, getPersonalNotes, deletePersonalNote, updatePersonalNote,
   // Users
   upsertUser, getUserByTelegramId, generateLinkToken, getUserByLinkToken,
+  getUsersPublicProfiles,
   updateUserProfileSettings,
   getPersonalWorkspaceSummary,
   // Transcripts

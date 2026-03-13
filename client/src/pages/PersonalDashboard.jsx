@@ -123,6 +123,35 @@ export default function PersonalDashboard() {
   const overdueCount = tasks.filter(t => t.deadline && new Date(t.deadline) < new Date()).length
   const now = new Date().toLocaleString('en-IN', { timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true })
 
+  function toDateTimeLocalValue(value) {
+    if (!value) return ''
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${value}T09:00`
+      return ''
+    }
+    const y = parsed.getFullYear()
+    const m = String(parsed.getMonth() + 1).padStart(2, '0')
+    const d = String(parsed.getDate()).padStart(2, '0')
+    const hh = String(parsed.getHours()).padStart(2, '0')
+    const mm = String(parsed.getMinutes()).padStart(2, '0')
+    return `${y}-${m}-${d}T${hh}:${mm}`
+  }
+
+  function formatDeadline(deadline) {
+    if (!deadline) return '—'
+    const parsed = new Date(deadline)
+    if (Number.isNaN(parsed.getTime())) return deadline
+    return parsed.toLocaleString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    })
+  }
+
   useEffect(() => {
     const savedTheme = user?.profile_theme === 'light' ? 'light' : 'dark'
     setTheme(savedTheme)
@@ -561,7 +590,7 @@ export default function PersonalDashboard() {
             </div>
             <form onSubmit={async e => { e.preventDefault(); const f = new FormData(e.target); await post('/dashboard/me/task/add', { task: f.get('task'), deadline: f.get('deadline') || '' }); e.target.reset() }} className="add-form">
               <input name="task" className="inp" placeholder="New task..." required />
-              <input name="deadline" type="date" className="inp inp-sm" title="Deadline (optional)" />
+              <input name="deadline" type="datetime-local" className="inp inp-sm" title="Deadline & time (optional)" step="60" />
               <button type="submit" className="btn btn-add">+ Add</button>
             </form>
             <div style={{ overflowX:'auto' }}>
@@ -573,7 +602,7 @@ export default function PersonalDashboard() {
                     return [
                       <tr key={"row-" + t.id}>
                         <td>{t.task}</td>
-                        <td className={isOverdue ? "overdue" : ""}>{t.deadline || '—'}</td>
+                        <td className={isOverdue ? "overdue" : ""}>{formatDeadline(t.deadline)}</td>
                         <td className="task-actions">
                           <button type="button" className="btn btn-done" onClick={() => post('/dashboard/me/task/' + t.id + '/done', {})}>✓ Done</button>
                           {' '}
@@ -587,7 +616,7 @@ export default function PersonalDashboard() {
                           <td colSpan={3}>
                             <form onSubmit={async e => { e.preventDefault(); const f = new FormData(e.target); await post("/dashboard/me/task/" + t.id + "/edit", { task: f.get('task'), deadline: f.get('deadline') || '' }); setEditingTask(null) }} className="inline-form">
                               <input name="task" defaultValue={t.task} required className="inp" placeholder="Task text" />
-                              <input name="deadline" defaultValue={t.deadline || ''} className="inp inp-sm" type="date" />
+                              <input name="deadline" defaultValue={toDateTimeLocalValue(t.deadline)} className="inp inp-sm" type="datetime-local" step="60" />
                               <button type="submit" className="btn btn-save">Save</button>
                               <button type="button" className="btn btn-cancel" onClick={() => setEditingTask(null)}>Cancel</button>
                             </form>

@@ -9,7 +9,7 @@ export default function PublicView() {
   if (loading) return <div className="main"><PublicSkeleton /></div>
   if (error)   return <div className="main"><ErrorBox message={error} /></div>
 
-  const { meetStats, taskStats, analytics, meetings } = data
+  const { meetStats, taskStats, analytics, meetings, members = [] } = data
   const rate   = analytics?.completionRate ?? 0
   const maxWk  = Math.max(...(analytics?.weeks || []).map(w => w.count), 1)
   const now    = new Date().toLocaleString('en-IN', { timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true })
@@ -83,6 +83,40 @@ export default function PublicView() {
               </tbody>
             </table>
           </div>
+        </div>
+
+        {/* Team members snapshot */}
+        <div className="fc">
+          <h2>Team Members &amp; Public Task Engagement</h2>
+          {!members.length ? (
+            <div className="empty">No team member details available yet</div>
+          ) : (
+            <div className="team-member-grid">
+              {members.map((m, idx) => {
+                const initials = String(m.name || 'TM').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()
+                return (
+                  <div className="team-member-card" key={`${m.name}-${idx}`}>
+                    <div className="team-member-head">
+                      {m.imageUrl ? (
+                        <img src={m.imageUrl} alt={`${m.name} profile`} className="team-member-avatar" />
+                      ) : (
+                        <div className="team-member-avatar">{initials}</div>
+                      )}
+                      <div>
+                        <strong>{m.name || 'Team Member'}</strong>
+                        <small>{m.username ? `@${m.username}` : (m.email || 'No public username')}</small>
+                      </div>
+                    </div>
+                    <div className="team-member-stats">
+                      <span><b>{m.activeTasks ?? 0}</b> active tasks</span>
+                      <span><b>{m.completedTasks ?? 0}</b> completed</span>
+                      <span><b>{m.totalTasks ?? 0}</b> total engaged</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Login CTA */}

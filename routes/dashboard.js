@@ -10,6 +10,9 @@ const {
   getTaskStats,
   getMeetingAnalytics,
   markTaskDone,
+  getAllMembers,
+  getTaskEngagementByPerson,
+  getUsersPublicProfiles,
   getUserByLinkToken,
   getPersonalTasks,
   getPersonalNotes,
@@ -166,6 +169,20 @@ function isHttpUrl(value) {
   return /^https?:\/\//i.test(String(value || ""));
 }
 
+function normalizeName(value) {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function parseAvatar(value) {
+  if (!value || typeof value !== "string") return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 router.post("/task/:id/done", authCheck, async (req, res) => {
   try {
     await markTaskDone(req.params.id);
@@ -217,13 +234,72 @@ router.get("/api/team", authCheck, async (req, res) => {
 
 router.get("/api/public", async (req, res) => {
   try {
-    const [meetings, meetStats, taskStats, analytics] = await Promise.all([
+    const [meetings, meetStats, taskStats, analytics, members, taskEngagement, userProfiles] = await Promise.all([
       getRecentMeetings(10),
       getMeetingStats(),
       getTaskStats(),
       getMeetingAnalytics(),
+      getAllMembers(),
+      getTaskEngagementByPerson(),
+      getUsersPublicProfiles(),
     ]);
-    res.json({ meetings, meetStats, taskStats, analytics });
+
+    const profileByName = new Map();
+    for (const u of userProfiles) {
+      const key = normalizeName(u.name);
+      if (!key) continue;
+      const avatar = parseAvatar(u.avatar_config) || {};
+      const username = String(u.username || "").trim().replace(/^@+/, "");
+      const uploadUrl = avatar?.source === "upload" && isHttpUrl(avatar.imageUrl) ? avatar.imageUrl : "";
+      const telegramUrl = username ? `https://t.me/i/userpic/320/${encodeURIComponent(username)}.jpg` : "";
+      profileByName.set(key, {
+        username,
+        imageUrl: uploadUrl || telegramUrl,
+      });
+    }
+
+    const engagementByName = new Map();
+    for (const row of taskEngagement) {
+      const key = normalizeName(row.person);
+      if (!key) continue;
+      engagementByName.set(key, {
+        pending: Number(row.pending || 0),
+        total: Number(row.total || 0),
+        done: Number(row.done || 0),
+      });
+    }
+
+    const allNames = new Set();
+    members.forEach((m) => allNames.add(normalizeName(m.name)));
+    taskEngagement.forEach((t) => allNames.add(normalizeName(t.person)));
+    userProfiles.forEach((u) => allNames.add(normalizeName(u.name)));
+
+    const memberDirectory = [];
+    for (const nameKey of allNames) {
+      if (!nameKey) continue;
+      const sourceMember = members.find((m) => normalizeName(m.name) === nameKey);
+      const sourceUser = userProfiles.find((u) => normalizeName(u.name) === nameKey);
+      const engagement = engagementByName.get(nameKey) || { pending: 0, total: 0, done: 0 };
+      const profile = profileByName.get(nameKey) || { username: "", imageUrl: "" };
+
+      memberDirectory.push({
+        name: sourceMember?.name || sourceUser?.name || nameKey,
+        email: sourceMember?.email || "",
+        username: profile.username,
+        imageUrl: profile.imageUrl,
+        activeTasks: engagement.pending,
+        completedTasks: engagement.done,
+        totalTasks: engagement.total,
+      });
+    }
+
+    memberDirectory.sort((a, b) => {
+      if (b.activeTasks !== a.activeTasks) return b.activeTasks - a.activeTasks;
+      if (b.totalTasks !== a.totalTasks) return b.totalTasks - a.totalTasks;
+      return String(a.name).localeCompare(String(b.name));
+    });
+
+    res.json({ meetings, meetStats, taskStats, analytics, members: memberDirectory });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
