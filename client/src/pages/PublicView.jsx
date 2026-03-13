@@ -79,8 +79,8 @@ export default function PublicView() {
           {/* Task completion */}
           <div className="card">
             <h2>Task Completion</h2>
-            <div style={{ fontSize:28, fontWeight:700, color:'#3fb950' }}>{rate}%</div>
-            <div style={{ fontSize:11, color:'#8b949e', marginTop:2 }}>{done} done / {total} total</div>
+            <div className="task-completion-rate">{rate}%</div>
+            <div className="task-completion-meta">{done} done / {total} total</div>
             <div className="pbg"><div className="pb" style={{ width: rate + '%' }} /></div>
           </div>
         </div>
@@ -145,9 +145,9 @@ export default function PublicView() {
         </div>
 
         {/* Login CTA */}
-        <div className="fc" style={{ textAlign:'center' }}>
-          <p style={{ color:'var(--text-muted)', fontSize:13, marginBottom:12 }}>Want to see your personal tasks and notes?</p>
-          <Link to={'/login' + search} style={{ background:'linear-gradient(90deg,var(--brand-strong),var(--brand))', color:'#1a1305', padding:'9px 22px', borderRadius:8, textDecoration:'none', fontSize:13, display:'inline-block', fontWeight:700 }}>
+        <div className="fc public-login-cta">
+          <p className="public-login-copy">Want to see your personal tasks and notes?</p>
+          <Link to={'/login' + search} className="btn-link-brand btn-link-brand-sm">
             Log in with Telegram Link Token
           </Link>
         </div>

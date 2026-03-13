@@ -85,9 +85,9 @@ export function deadlineClass(deadline) {
 }
 
 export function scoreColor(score) {
-  if (score >= 70) return '#3fb950'
-  if (score >= 40) return '#d29922'
-  return '#f85149'
+  if (score >= 70) return 'var(--success)'
+  if (score >= 40) return 'var(--warning)'
+  return 'var(--danger)'
 }
 
 const THEME_KEY = 'cmbt-theme'

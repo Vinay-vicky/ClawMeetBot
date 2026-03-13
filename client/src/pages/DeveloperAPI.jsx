@@ -37,7 +37,7 @@ export default function DeveloperAPI() {
         <div className="hdr-right">
           <Link to={'/team' + search}      className="refresh">Team Dashboard</Link>
           <Link to={'/analytics' + search} className="refresh">Analytics</Link>
-          <a href={backendUrl('/dashboard/logout')} className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
+          <a href={backendUrl('/dashboard/logout')} className="refresh signout-link">Sign out</a>
         </div>
       </div>
 
@@ -61,7 +61,7 @@ export default function DeveloperAPI() {
             <h2>{section}</h2>
             <table>
               <thead>
-                <tr><th style={{ width:80 }}>Method</th><th style={{ width:300 }}>Endpoint</th><th>Description</th></tr>
+                <tr><th className="api-col-method">Method</th><th className="api-col-endpoint">Endpoint</th><th>Description</th></tr>
               </thead>
               <tbody>
                 {items.map(ep => (
@@ -81,7 +81,7 @@ export default function DeveloperAPI() {
 
         <div className="card" style={{ marginBottom:24 }}>
           <h2>Integrations</h2>
-          <p style={{ fontSize:12, color:'#8b949e', marginBottom:14 }}>These endpoints can be used with automation tools and custom integrations:</p>
+          <p className="api-muted-copy">These endpoints can be used with automation tools and custom integrations:</p>
           <div className="chips">
             {integrations.map(i => <span className="chip" key={i}>{i}</span>)}
           </div>
@@ -90,7 +90,7 @@ export default function DeveloperAPI() {
 
       <div className="ftr">
         ClawMeet Bot &bull;{' '}
-        <Link to={'/team' + search} style={{ color:'var(--brand)', textDecoration:'none' }}>← Back to Dashboard</Link>
+        <Link to={'/team' + search} className="ftr-link-brand">← Back to Dashboard</Link>
       </div>
     </div>
   )

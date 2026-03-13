@@ -124,9 +124,9 @@ export default function Dashboard() {
       </div>
 
       {/* Analytics CTA — identical to original */}
-      <div className="fc" style={{ background:'linear-gradient(135deg,#101624 0%,#0d1320 100%)', borderColor:'var(--brand)', textAlign:'center', padding:'28px 20px' }}>
-        <div style={{ fontSize:16, fontWeight:600, color:'var(--brand)', marginBottom:8 }}>Team Analytics</div>
-        <p style={{ color:'var(--text-muted)', fontSize:12, marginBottom:18, lineHeight:1.7 }}>
+      <div className="fc analytics-cta-card">
+        <div className="analytics-cta-title">Team Analytics</div>
+        <p className="analytics-cta-copy">
           Meetings per week &bull; Task completion &bull; Productivity score &bull; Top assignees &bull; Busiest days<br />
           All charts in one focused, distraction-free view
         </p>
@@ -135,7 +135,7 @@ export default function Dashboard() {
           onMouseEnter={prefetchAnalyticsRoute}
           onTouchStart={prefetchAnalyticsRoute}
           onFocus={prefetchAnalyticsRoute}
-          style={{ display:'inline-block', background:'linear-gradient(90deg,var(--brand-strong),var(--brand))', color:'#1a1305', padding:'10px 28px', borderRadius:8, textDecoration:'none', fontSize:13, fontWeight:700 }}
+          className="btn-link-brand"
         >
           View Analytics &rarr;
         </Link>
@@ -143,7 +143,7 @@ export default function Dashboard() {
 
       {/* Pending Tasks */}
       <div className="fc">
-        <h2>Pending Tasks <span style={{ color:'var(--text-subtle)', fontWeight:400, textTransform:'none', letterSpacing:0 }}>(top 30 — click Done to complete)</span></h2>
+        <h2>Pending Tasks <span className="muted-inline-note">(top 30 — click Done to complete)</span></h2>
         <div className="table-scroll">
           <table>
             <thead><tr><th>#</th><th>Person</th><th>Task</th><th>Deadline</th><th>Meeting</th><th></th></tr></thead>

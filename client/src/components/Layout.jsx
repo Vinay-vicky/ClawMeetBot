@@ -28,7 +28,7 @@ export default function Layout({ title, subtitle, mainClass, navExtra, children 
         </div>
         <div className="hdr-right">
           {navLinks.map(({ to, label }) => (
-            <Link key={to} to={to + search} className="refresh" style={pathname === to ? { borderColor:'#58a6ff' } : {}}>
+            <Link key={to} to={to + search} className={`refresh${pathname === to ? ' active-nav' : ''}`}>
               {label}
             </Link>
           ))}
@@ -36,7 +36,7 @@ export default function Layout({ title, subtitle, mainClass, navExtra, children 
             {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
           </button>
           {navExtra}
-          <a href={backendUrl('/dashboard/logout')} className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
+          <a href={backendUrl('/dashboard/logout')} className="refresh signout-link">Sign out</a>
         </div>
       </div>
       <div className={mainClass || 'main'}>
@@ -45,9 +45,9 @@ export default function Layout({ title, subtitle, mainClass, navExtra, children 
       </div>
       <div className="ftr">
         Zunoverse x ClawMeet &bull; Human-first AI &bull; Node.js &bull;{' '}
-        <a href="https://github.com/Vinay-vicky/ClawMeetBot" target="_blank" rel="noreferrer" style={{ color:'var(--brand)', textDecoration:'none' }}>GitHub</a>
+        <a href="https://github.com/Vinay-vicky/ClawMeetBot" target="_blank" rel="noreferrer" className="ftr-link-brand">GitHub</a>
         {' '}&bull;{' '}
-        <Link to={'/developer' + search} style={{ color:'var(--text-subtle)', textDecoration:'none', fontSize:10 }}>Developer API</Link>
+        <Link to={'/developer' + search} className="ftr-link-subtle">Developer API</Link>
       </div>
     </div>
   )

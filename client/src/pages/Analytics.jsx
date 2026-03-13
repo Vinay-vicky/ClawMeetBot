@@ -1,18 +1,42 @@
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { AnalyticsSkeleton, ErrorBox } from '../components/KpiCard.jsx'
-import { useApi, scoreColor, backendUrl } from '../lib/utils.js'
+import { useApi, scoreColor, backendUrl, getStoredTheme } from '../lib/utils.js'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from 'recharts'
 
-const GRID  = 'rgba(255,255,255,0.08)'
-const LABEL = '#9ea8c2'
-const BLUE  = '#f6d37a'
-const GREEN = '#63d2a1'
-const AMBER = '#e6b84e'
-const TT    = { backgroundColor:'#101624', border:'1px solid #2a3145', borderRadius:8, fontSize:11 }
+function getThemeChartTokens(theme) {
+  if (theme === 'light') {
+    return {
+      grid: 'rgba(31,42,68,0.14)',
+      label: '#556486',
+      blue: '#ca8a04',
+      green: '#0f766e',
+      amber: '#a16207',
+      tooltip: { backgroundColor: '#ffffff', border: '1px solid #d4ddef', borderRadius: 8, fontSize: 11, color: '#1f2a44' },
+      doneFill: 'rgba(15,118,110,0.22)',
+      doneStroke: '#0f766e',
+      pendingFill: 'rgba(85,100,134,0.22)',
+      pendingStroke: '#7081a7',
+    }
+  }
+
+  return {
+    grid: 'rgba(255,255,255,0.08)',
+    label: '#9ea8c2',
+    blue: '#f6d37a',
+    green: '#63d2a1',
+    amber: '#e6b84e',
+    tooltip: { backgroundColor: '#101624', border: '1px solid #2a3145', borderRadius: 8, fontSize: 11, color: '#eef3ff' },
+    doneFill: 'rgba(63,185,80,0.8)',
+    doneStroke: '#3fb950',
+    pendingFill: 'rgba(33,38,45,0.9)',
+    pendingStroke: '#30363d',
+  }
+}
 
 function AnalyticsLayout({ children }) {
   const { search } = useLocation()
@@ -28,13 +52,13 @@ function AnalyticsLayout({ children }) {
           <Link to={'/team' + search}    className="refresh">Team Dashboard</Link>
           <Link to={'/public' + search}  className="refresh">Team View</Link>
           <Link to={'/me' + search}      className="refresh">My Dashboard</Link>
-          <a href={backendUrl('/dashboard/logout')} className="refresh" style={{ color:'#8b949e' }}>Sign out</a>
+          <a href={backendUrl('/dashboard/logout')} className="refresh signout-link">Sign out</a>
         </div>
       </div>
       <div className="main-analytics">{children}</div>
       <div className="ftr">
         ClawMeet Bot &bull; Analytics &bull;{' '}
-        <Link to={'/team' + search} style={{ color:'var(--brand)', textDecoration:'none' }}>← Back to Dashboard</Link>
+        <Link to={'/team' + search} className="ftr-link-brand">← Back to Dashboard</Link>
       </div>
     </div>
   )
@@ -42,6 +66,15 @@ function AnalyticsLayout({ children }) {
 
 export default function Analytics() {
   const { data, loading, error } = useApi('/dashboard/api/team')
+  const [theme, setTheme] = useState(() => getStoredTheme())
+
+  useEffect(() => {
+    const onThemeChange = (event) => {
+      setTheme(event?.detail === 'light' ? 'light' : 'dark')
+    }
+    window.addEventListener('cmbt-theme-change', onThemeChange)
+    return () => window.removeEventListener('cmbt-theme-change', onThemeChange)
+  }, [])
 
   if (loading) return <AnalyticsLayout><AnalyticsSkeleton /></AnalyticsLayout>
   if (error)   return <AnalyticsLayout><ErrorBox message={error} /></AnalyticsLayout>
@@ -56,6 +89,7 @@ export default function Analytics() {
   const aiCov     = data.summaryCount && data.meetings?.length ? Math.round(data.summaryCount / data.meetings.length * 100) : 0
   const actScore  = Math.min(100, Math.round(((meetStats?.thisWeek ?? 0) / 5) * 100))
   const pColor    = scoreColor(productivityScore)
+  const chartTheme = useMemo(() => getThemeChartTokens(theme), [theme])
 
   const radarData = [
     { subject: 'Tasks',       A: Math.round(rate) },
@@ -88,11 +122,11 @@ export default function Analytics() {
         <div className="chart-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={weeks} margin={{ top:4, right:4, left:-10, bottom:4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-              <XAxis dataKey="week" tick={{ fill:LABEL, fontSize:11 }} />
-              <YAxis tick={{ fill:LABEL, fontSize:11 }} allowDecimals={false} />
-              <Tooltip contentStyle={TT} />
-              <Bar dataKey="count" name="Meetings" fill={BLUE} fillOpacity={0.8} radius={[4,4,0,0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+              <XAxis dataKey="week" tick={{ fill:chartTheme.label, fontSize:11 }} />
+              <YAxis tick={{ fill:chartTheme.label, fontSize:11 }} allowDecimals={false} />
+              <Tooltip contentStyle={chartTheme.tooltip} />
+              <Bar dataKey="count" name="Meetings" fill={chartTheme.blue} fillOpacity={0.8} radius={[4,4,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -106,15 +140,15 @@ export default function Analytics() {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={donutData} cx="50%" cy="50%" innerRadius={65} outerRadius={95} dataKey="value">
-                  <Cell fill="rgba(63,185,80,0.8)" stroke="#3fb950" strokeWidth={2} />
-                  <Cell fill="rgba(33,38,45,0.9)"  stroke="#30363d" strokeWidth={2} />
+                  <Cell fill={chartTheme.doneFill} stroke={chartTheme.doneStroke} strokeWidth={2} />
+                  <Cell fill={chartTheme.pendingFill} stroke={chartTheme.pendingStroke} strokeWidth={2} />
                 </Pie>
-                <Legend iconSize={10} wrapperStyle={{ fontSize:11, color:LABEL }} />
-                <Tooltip contentStyle={TT} />
+                <Legend iconSize={10} wrapperStyle={{ fontSize:11, color:chartTheme.label }} />
+                <Tooltip contentStyle={chartTheme.tooltip} />
               </PieChart>
             </ResponsiveContainer>
           </div>
-          <p style={{ textAlign:'center', fontSize:12, color:'#8b949e', marginTop:12 }}>{done} completed / {total} total tasks</p>
+          <p className="analytics-muted-copy">{done} completed / {total} total tasks</p>
         </div>
 
         <div className="analytics-card card">
@@ -133,11 +167,11 @@ export default function Analytics() {
           <div className="chart-half" style={{ height:190 }}>
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={radarData} cx="50%" cy="50%" outerRadius={70}>
-                <PolarGrid stroke={GRID} />
-                <PolarAngleAxis dataKey="subject" tick={{ fill:LABEL, fontSize:10 }} />
-                <PolarRadiusAxis domain={[0,100]} tick={{ fill:LABEL, fontSize:8 }} tickCount={4} />
-                <Radar dataKey="A" stroke={BLUE} fill={BLUE} fillOpacity={0.15} strokeWidth={2} />
-                <Tooltip contentStyle={TT} />
+                <PolarGrid stroke={chartTheme.grid} />
+                <PolarAngleAxis dataKey="subject" tick={{ fill:chartTheme.label, fontSize:10 }} />
+                <PolarRadiusAxis domain={[0,100]} tick={{ fill:chartTheme.label, fontSize:8 }} tickCount={4} />
+                <Radar dataKey="A" stroke={chartTheme.blue} fill={chartTheme.blue} fillOpacity={0.15} strokeWidth={2} />
+                <Tooltip contentStyle={chartTheme.tooltip} />
               </RadarChart>
             </ResponsiveContainer>
           </div>
@@ -151,11 +185,11 @@ export default function Analytics() {
           <div className="chart-half">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={assignees} layout="vertical" margin={{ top:4, right:16, left:8, bottom:4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={GRID} horizontal={false} />
-                <XAxis type="number" tick={{ fill:LABEL, fontSize:11 }} allowDecimals={false} />
-                <YAxis type="category" dataKey="person" tick={{ fill:LABEL, fontSize:11 }} width={80} />
-                <Tooltip contentStyle={TT} />
-                <Bar dataKey="count" name="Tasks" fill={GREEN} fillOpacity={0.7} radius={[0,4,4,0]} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} horizontal={false} />
+                <XAxis type="number" tick={{ fill:chartTheme.label, fontSize:11 }} allowDecimals={false} />
+                <YAxis type="category" dataKey="person" tick={{ fill:chartTheme.label, fontSize:11 }} width={80} />
+                <Tooltip contentStyle={chartTheme.tooltip} />
+                <Bar dataKey="count" name="Tasks" fill={chartTheme.green} fillOpacity={0.7} radius={[0,4,4,0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -166,11 +200,11 @@ export default function Analytics() {
           <div className="chart-half">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={days} margin={{ top:4, right:4, left:-10, bottom:4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-                <XAxis dataKey="day" tick={{ fill:LABEL, fontSize:11 }} />
-                <YAxis tick={{ fill:LABEL, fontSize:11 }} allowDecimals={false} />
-                <Tooltip contentStyle={TT} />
-                <Bar dataKey="count" name="Meetings" fill={AMBER} fillOpacity={0.8} radius={[4,4,0,0]} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                <XAxis dataKey="day" tick={{ fill:chartTheme.label, fontSize:11 }} />
+                <YAxis tick={{ fill:chartTheme.label, fontSize:11 }} allowDecimals={false} />
+                <Tooltip contentStyle={chartTheme.tooltip} />
+                <Bar dataKey="count" name="Meetings" fill={chartTheme.amber} fillOpacity={0.8} radius={[4,4,0,0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
