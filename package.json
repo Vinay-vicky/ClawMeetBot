@@ -8,7 +8,7 @@
     "dev": "nodemon server.js",
     "build": "cd client && npm run build",
     "build:start": "npm run build && npm start",
-    "test": "echo \"No automated tests configured yet\""
+    "test": "npm --prefix client run test:run"
   },
   "keywords": [],
   "author": "",

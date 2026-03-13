@@ -7,6 +7,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      setupFiles: './src/test/setup.js',
+    },
     build: {
       outDir: standalone ? 'dist' : '../public/dashboard-ui',
       emptyOutDir: true,
