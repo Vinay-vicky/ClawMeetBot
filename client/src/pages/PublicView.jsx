@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useApi, fmtTime } from '../lib/utils.js'
 import { PublicSkeleton, ErrorBox } from '../components/KpiCard.jsx'
@@ -5,16 +6,35 @@ import { PublicSkeleton, ErrorBox } from '../components/KpiCard.jsx'
 export default function PublicView() {
   const { data, loading, error } = useApi('/dashboard/api/public')
   const { search } = useLocation()
+  const [memberSort, setMemberSort] = useState('active')
 
-  if (loading) return <div className="main"><PublicSkeleton /></div>
-  if (error)   return <div className="main"><ErrorBox message={error} /></div>
-
-  const { meetStats, taskStats, analytics, meetings, members = [] } = data
+  const safeData = data || {}
+  const { meetStats, taskStats, analytics, meetings, members = [] } = safeData
   const rate   = analytics?.completionRate ?? 0
   const maxWk  = Math.max(...(analytics?.weeks || []).map(w => w.count), 1)
   const now    = new Date().toLocaleString('en-IN', { timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true })
   const done   = analytics?.doneTasks ?? 0
   const total  = done + (analytics?.pendingTasks ?? 0)
+
+  function getLoadStatus(activeTasks) {
+    const active = Number(activeTasks || 0)
+    if (active >= 6) return { label: 'Overloaded', className: 'member-status overloaded' }
+    if (active >= 1) return { label: 'Balanced', className: 'member-status balanced' }
+    return { label: 'Free', className: 'member-status free' }
+  }
+
+  const sortedMembers = [...members].sort((a, b) => {
+    if (memberSort === 'name') {
+      return String(a.name || '').localeCompare(String(b.name || ''))
+    }
+    if (memberSort === 'completed') {
+      return Number(b.completedTasks || 0) - Number(a.completedTasks || 0)
+    }
+    return Number(b.activeTasks || 0) - Number(a.activeTasks || 0)
+  })
+
+  if (loading) return <div className="main"><PublicSkeleton /></div>
+  if (error)   return <div className="main"><ErrorBox message={error} /></div>
 
   return (
     <div>
@@ -87,13 +107,21 @@ export default function PublicView() {
 
         {/* Team members snapshot */}
         <div className="fc">
-          <h2>Team Members &amp; Public Task Engagement</h2>
+          <div className="team-member-topbar">
+            <h2>Team Members &amp; Public Task Engagement</h2>
+            <div className="team-member-sort" role="group" aria-label="Sort members">
+              <button type="button" className={`team-sort-btn ${memberSort === 'active' ? 'active' : ''}`} onClick={() => setMemberSort('active')}>Sort: Active</button>
+              <button type="button" className={`team-sort-btn ${memberSort === 'completed' ? 'active' : ''}`} onClick={() => setMemberSort('completed')}>Sort: Completed</button>
+              <button type="button" className={`team-sort-btn ${memberSort === 'name' ? 'active' : ''}`} onClick={() => setMemberSort('name')}>Sort: Name</button>
+            </div>
+          </div>
           {!members.length ? (
             <div className="empty">No team member details available yet</div>
           ) : (
             <div className="team-member-grid">
-              {members.map((m, idx) => {
+              {sortedMembers.map((m, idx) => {
                 const initials = String(m.name || 'TM').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()
+                const load = getLoadStatus(m.activeTasks)
                 return (
                   <div className="team-member-card" key={`${m.name}-${idx}`}>
                     <div className="team-member-head">
@@ -105,6 +133,7 @@ export default function PublicView() {
                       <div>
                         <strong>{m.name || 'Team Member'}</strong>
                         <small>{m.username ? `@${m.username}` : (m.email || 'No public username')}</small>
+                        <span className={load.className}>{load.label}</span>
                       </div>
                     </div>
                     <div className="team-member-stats">

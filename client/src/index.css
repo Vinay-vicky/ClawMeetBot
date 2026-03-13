@@ -183,10 +183,20 @@ code{background:#0d1320;border:1px solid var(--border);padding:2px 7px;border-ra
 
 .team-member-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
 .team-member-card{background:linear-gradient(180deg,rgba(17,24,39,.92),rgba(12,18,30,.92));border:1px solid var(--border);border-radius:12px;padding:12px}
+.team-member-topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.team-member-topbar h2{margin-bottom:0}
+.team-member-sort{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.team-sort-btn{padding:5px 10px;border:1px solid var(--border);background:#172033;color:var(--text-muted);border-radius:7px;font-size:11px;cursor:pointer;transition:.2s ease;font-family:inherit}
+.team-sort-btn:hover{color:var(--text);border-color:#3a4460}
+.team-sort-btn.active{background:linear-gradient(90deg,var(--brand-strong),var(--brand));color:#1a1305;border-color:#f2c969;font-weight:700}
 .team-member-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .team-member-avatar{width:42px;height:42px;border-radius:999px;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,var(--brand-strong),var(--brand));color:#1a1305;font-size:14px;font-weight:700;border:1px solid rgba(246,211,122,.45);object-fit:cover}
 .team-member-head strong{display:block;font-size:13px;color:var(--text)}
 .team-member-head small{display:block;font-size:11px;color:var(--text-muted)}
+.member-status{display:inline-block;margin-top:6px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.2px}
+.member-status.overloaded{background:rgba(255,123,123,.15);color:var(--danger);border:1px solid rgba(255,123,123,.4)}
+.member-status.balanced{background:rgba(246,211,122,.15);color:var(--brand);border:1px solid rgba(246,211,122,.45)}
+.member-status.free{background:rgba(99,210,161,.16);color:var(--success);border:1px solid rgba(99,210,161,.45)}
 .team-member-stats{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-muted)}
 .team-member-stats b{color:var(--text)}
 
