@@ -29,20 +29,35 @@ const app = express();
 app.set("trust proxy", 1); // Render / other reverse proxies forward X-Forwarded-For
 
 const frontendUrl = (process.env.FRONTEND_URL || "").replace(/\/+$/, "");
+const corsOriginsFromEnv = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((x) => x.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
+const allowedOrigins = new Set([
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  frontendUrl,
+  ...corsOriginsFromEnv,
+].filter(Boolean));
 
 // Sentry request handler must be first middleware
 if (process.env.SENTRY_DSN) app.use(Sentry.Handlers.requestHandler());
 
-if (frontendUrl) {
-  const corsOptions = {
-    origin: frontendUrl,
-    credentials: true,
-    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "x-dashboard-token", "x-requested-with"],
-  };
-  app.use(cors(corsOptions));
-  app.options("*", cors(corsOptions));
-}
+const corsOptions = {
+  origin(origin, callback) {
+    // Non-browser or same-origin server requests often have no Origin header.
+    if (!origin) return callback(null, true);
+    const normalized = String(origin).replace(/\/+$/, "");
+    if (allowedOrigins.has(normalized)) return callback(null, true);
+    logger.warn(`CORS blocked for origin: ${origin}`);
+    return callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-dashboard-token", "x-requested-with"],
+};
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 app.use(express.json());
 
