@@ -42,7 +42,6 @@ class RouteErrorBoundary extends Component {
   }
 
   componentDidCatch(error) {
-    // eslint-disable-next-line no-console
     console.error('Route render error:', error)
   }
 

@@ -51,11 +51,6 @@ async function buildRagZipBuffer(options = {}) {
   }
 
   const fullText = chunkTexts.join("\n\n");
-  const baseName = originalName
-    .replace(/\.pdf$/i, "")
-    .replace(/[^a-zA-Z0-9_-]/g, "_")
-    .substring(0, 40) || "document";
-
   const metadata = {
     source: originalName,
     source_mode: sourceMode,
@@ -78,6 +73,7 @@ async function buildRagZipBuffer(options = {}) {
     "## Files",
     "| File | Description |",
     "| ---- | ----------- |",
+    "| llms.txt | Canonical LLM context file (same as llms-full.txt) |",
     "| llms-full.txt | Reconstructed full text from indexed chunks |",
     "| llms-medium.txt | First ~4 000 characters (section summary) |",
     "| llms-small.txt | First ~1 000 characters (quick context) |",
@@ -97,16 +93,17 @@ async function buildRagZipBuffer(options = {}) {
 
     archive.pipe(stream);
 
-    archive.append(fullText, { name: `${baseName}/llms-full.txt` });
-    archive.append(fullText.slice(0, MEDIUM_LEN), { name: `${baseName}/llms-medium.txt` });
-    archive.append(fullText.slice(0, SMALL_LEN), { name: `${baseName}/llms-small.txt` });
-    archive.append(JSON.stringify(metadata, null, 2), { name: `${baseName}/metadata.json` });
-    archive.append(readme, { name: `${baseName}/README.md` });
+    archive.append(fullText, { name: "llms.txt" });
+    archive.append(fullText, { name: "llms-full.txt" });
+    archive.append(fullText.slice(0, MEDIUM_LEN), { name: "llms-medium.txt" });
+    archive.append(fullText.slice(0, SMALL_LEN), { name: "llms-small.txt" });
+    archive.append(JSON.stringify(metadata, null, 2), { name: "metadata.json" });
+    archive.append(readme, { name: "README.md" });
 
     chunkTexts.forEach((chunk, i) => {
       const header = `[chunk:${i + 1}/${chunkTexts.length}] [source:${originalName}]\n\n`;
       archive.append(`${header}${chunk}`, {
-        name: `${baseName}/chunks/chunk_${String(i).padStart(4, "0")}.txt`,
+        name: `chunks/chunk_${String(i).padStart(4, "0")}.txt`,
       });
     });
 
@@ -137,6 +134,7 @@ async function convertPdf(fileBuffer, originalName) {
   fs.mkdirSync(folderPath, { recursive: true });
 
   // ── 1. Full text ──────────────────────────────────────────────────────────
+  fs.writeFileSync(path.join(folderPath, "llms.txt"),        text, "utf8");
   fs.writeFileSync(path.join(folderPath, "llms-full.txt"),   text, "utf8");
 
   // ── 2. Medium & small summaries ───────────────────────────────────────────
@@ -177,6 +175,7 @@ async function convertPdf(fileBuffer, originalName) {
     "## Files",
     "| File | Description |",
     "| ---- | ----------- |",
+    "| llms.txt | Canonical LLM context file (same as llms-full.txt) |",
     "| llms-full.txt | Complete extracted text |",
     "| llms-medium.txt | First ~4 000 characters (section summary) |",
     "| llms-small.txt | First ~1 000 characters (quick context) |",
@@ -198,7 +197,7 @@ async function convertPdf(fileBuffer, originalName) {
     output.on("close", resolve);
     archive.on("error", reject);
     archive.pipe(output);
-    archive.directory(folderPath, baseName);
+    archive.directory(folderPath, false);
     archive.finalize();
   });
 
