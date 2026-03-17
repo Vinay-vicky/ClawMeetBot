@@ -11,6 +11,7 @@ const processCalls = []
 const savePdfImportCalls = []
 const recentPdfImports = []
 const chunkRowsBySource = new Map()
+const chunkRowsByName = new Map()
 
 const tempZipPath = path.join(os.tmpdir(), `clawmeet-test-import-${process.pid}.zip`)
 fs.writeFileSync(tempZipPath, Buffer.from('mock zip output'))
@@ -40,6 +41,10 @@ mockModule('../services/dbService', {
   getRecentPdfImports: async () => recentPdfImports,
   getPdfImportById: async (id) => recentPdfImports.find((row) => Number(row.id) === Number(id)) || null,
   getChunksBySource: async (sourceType, sourceId) => chunkRowsBySource.get(`${sourceType}:${sourceId}`) || [],
+  getChunksBySourceName: async (sourceName, sourceType) => {
+    const key = `${String(sourceName || '').toLowerCase()}:${String(sourceType || '').toLowerCase()}`
+    return chunkRowsByName.get(key) || chunkRowsByName.get(`${String(sourceName || '').toLowerCase()}:`) || []
+  },
   getUserByTelegramId: async () => ({ telegram_id: '42', name: 'Test User' }),
   updateUserProfileSettings: async () => {},
   addPersonalTask: async () => {},
@@ -202,6 +207,8 @@ test('POST /dashboard/api/me/pdf-upload rejects unauthenticated requests', async
 
 test('GET /dashboard/api/me includes recent PDF imports with download availability', async () => {
   recentPdfImports.length = 0
+  chunkRowsBySource.clear()
+  chunkRowsByName.clear()
   recentPdfImports.push({
     id: 91,
     telegram_id: '42',
@@ -215,9 +222,13 @@ test('GET /dashboard/api/me includes recent PDF imports with download availabili
     chunks: 34,
     chars: 5678,
     indexed_chunks: 34,
-    zip_path: tempZipPath,
+    zip_path: '',
     created_at: '2026-03-17 10:20:30',
   })
+
+  chunkRowsBySource.set('pdf_upload:source-91', [
+    { chunk_text: 'Chunk for regular source-id lookup' },
+  ])
 
   const app = buildApp()
   const res = await request(app)
@@ -235,6 +246,7 @@ test('GET /dashboard/api/me includes recent PDF imports with download availabili
 test('GET /dashboard/api/me/pdf-imports/:id/download streams the saved ZIP output', async () => {
   recentPdfImports.length = 0
   chunkRowsBySource.clear()
+  chunkRowsByName.clear()
   recentPdfImports.push({
     id: 92,
     telegram_id: '42',
@@ -266,6 +278,46 @@ test('GET /dashboard/api/me/pdf-imports/:id/download streams the saved ZIP outpu
 
   assert.equal(res.status, 200)
   assert.equal(String(res.headers['content-disposition']).includes('remote-rag-docs.zip'), true)
+  assert.equal(String(res.headers['content-type']).includes('application/zip'), true)
+  assert.equal(Buffer.isBuffer(res.body), true)
+  assert.equal(res.body.length > 0, true)
+})
+
+test('GET /dashboard/api/me/pdf-imports/:id/download falls back to source-name lookup for legacy imports', async () => {
+  recentPdfImports.length = 0
+  chunkRowsBySource.clear()
+  chunkRowsByName.clear()
+
+  recentPdfImports.push({
+    id: 1,
+    telegram_id: '42',
+    file_name: 'legacy.pdf',
+    download_name: 'legacy-rag-docs.zip',
+    source_mode: 'upload',
+    source_url: '',
+    source_type: '',
+    source_id: '',
+    pages: 3,
+    chunks: 7,
+    chars: 900,
+    indexed_chunks: 7,
+    zip_path: '',
+    created_at: '2026-03-17 09:00:00',
+  })
+
+  chunkRowsByName.set('legacy.pdf:', [
+    { chunk_text: 'Recovered chunk via source-name fallback.' },
+  ])
+
+  const app = buildApp()
+  const res = await request(app)
+    .get('/dashboard/api/me/pdf-imports/1/download')
+    .set('Cookie', sessionCookie(42))
+    .buffer(true)
+    .parse(binaryParser)
+
+  assert.equal(res.status, 200)
+  assert.equal(String(res.headers['content-disposition']).includes('legacy-rag-docs.zip'), true)
   assert.equal(String(res.headers['content-type']).includes('application/zip'), true)
   assert.equal(Buffer.isBuffer(res.body), true)
   assert.equal(res.body.length > 0, true)

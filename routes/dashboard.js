@@ -29,6 +29,7 @@ const {
   getRecentPdfImports,
   getPdfImportById,
   getChunksBySource,
+  getChunksBySourceName,
 } = require("../services/dbService");
 const { getScheduledMeetings } = require("../services/calendarService");
 const { getTelegramProfilePhotoFileUrl } = require("../services/telegramService");
@@ -211,8 +212,34 @@ function buildPdfDownloadName(fileName) {
   return `${baseName}-rag-docs.zip`;
 }
 
-function pdfImportToResponse(req, row) {
-  const zipAvailable = Number(row.indexed_chunks || row.chunks || 0) > 0;
+async function resolveChunksForImport(importRecord) {
+  const sourceType = String(importRecord?.source_type || "").trim();
+  const sourceId = String(importRecord?.source_id || "").trim();
+  const fileName = String(importRecord?.file_name || "").trim();
+
+  if (sourceType && sourceId) {
+    const exact = await getChunksBySource(sourceType, sourceId);
+    if (exact.length) return exact;
+  }
+
+  if (fileName) {
+    if (sourceType) {
+      const byNameSameType = await getChunksBySourceName(fileName, sourceType);
+      if (byNameSameType.length) return byNameSameType;
+    }
+
+    const byNameAnyType = await getChunksBySourceName(fileName);
+    if (byNameAnyType.length) return byNameAnyType;
+  }
+
+  return [];
+}
+
+async function pdfImportToResponse(req, row) {
+  const zipPath = String(row.zip_path || "");
+  const zipOnDisk = Boolean(zipPath) && fs.existsSync(path.resolve(zipPath));
+  const resolvedChunks = zipOnDisk ? [] : await resolveChunksForImport(row);
+  const zipAvailable = zipOnDisk || resolvedChunks.length > 0;
   return {
     id: Number(row.id),
     fileName: row.file_name,
@@ -340,7 +367,7 @@ router.get("/api/me", requireJsonSession, async (req, res) => {
       user: user || { name: req.session.name, telegram_id: telegramId },
       tasks,
       notes,
-      imports: imports.map((row) => pdfImportToResponse(req, row)),
+      imports: await Promise.all(imports.map((row) => pdfImportToResponse(req, row))),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -479,7 +506,7 @@ router.get("/api/me/pdf-imports/:id/download", requireSession, async (req, res) 
       return res.download(zipPath, importRecord.download_name || buildPdfDownloadName(importRecord.file_name));
     }
 
-    const chunks = await getChunksBySource(importRecord.source_type, importRecord.source_id);
+    const chunks = await resolveChunksForImport(importRecord);
     if (!chunks.length) {
       return res.status(410).json({ error: "ZIP output is no longer available for this import" });
     }

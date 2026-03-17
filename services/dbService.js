@@ -572,6 +572,32 @@ async function getChunksBySource(sourceType, sourceId) {
   return res.rows;
 }
 
+/** Retrieve chunks by source display name (legacy fallback for old imports) */
+async function getChunksBySourceName(sourceName, sourceType = "") {
+  const normalizedName = String(sourceName || "").trim().toLowerCase();
+  if (!normalizedName) return [];
+
+  if (String(sourceType || "").trim()) {
+    const res = await db.execute({
+      sql: `SELECT id, source_type, source_id, source_name, chunk_text
+            FROM knowledge_chunks
+            WHERE lower(source_name) = ? AND source_type = ?
+            ORDER BY id ASC`,
+      args: [normalizedName, String(sourceType).trim()],
+    });
+    return res.rows;
+  }
+
+  const res = await db.execute({
+    sql: `SELECT id, source_type, source_id, source_name, chunk_text
+          FROM knowledge_chunks
+          WHERE lower(source_name) = ?
+          ORDER BY id ASC`,
+    args: [normalizedName],
+  });
+  return res.rows;
+}
+
 /** Delete all chunks for a specific source (used before re-indexing) */
 async function deleteChunksBySource(sourceType, sourceId) {
   await db.execute({
@@ -753,7 +779,7 @@ module.exports = {
   // Team tasks (manual)
   saveTeamTask,
   // RAG knowledge chunks
-  saveChunk, getAllChunks, getChunksBySource, deleteChunksBySource,
+  saveChunk, getAllChunks, getChunksBySource, getChunksBySourceName, deleteChunksBySource,
   // Embedding cache
   getCachedEmbedding, saveCachedEmbedding,
 };
