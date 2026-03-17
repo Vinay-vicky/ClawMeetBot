@@ -1,6 +1,7 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
+const { PassThrough } = require("stream");
 const { PDFParse } = require("pdf-parse");
 const archiver = require("archiver");
 const { v4: uuidv4 } = require("uuid");
@@ -32,6 +33,87 @@ function makeChunks(text, size = CHUNK_SIZE, overlap = OVERLAP) {
     i += size - overlap;
   }
   return chunks;
+}
+
+async function buildRagZipBuffer(options = {}) {
+  const originalName = String(options.originalName || "document.pdf");
+  const sourceMode = String(options.sourceMode || "upload");
+  const sourceUrl = String(options.sourceUrl || "");
+  const pages = Number(options.pages || 0);
+  const chars = Number(options.chars || 0);
+  const providedChunks = Array.isArray(options.chunks) ? options.chunks : [];
+  const chunkTexts = providedChunks
+    .map((chunk) => String(chunk || "").trim())
+    .filter((chunk) => chunk.length > 0);
+
+  if (!chunkTexts.length) {
+    throw new Error("No indexed chunks found for this import");
+  }
+
+  const fullText = chunkTexts.join("\n\n");
+  const baseName = originalName
+    .replace(/\.pdf$/i, "")
+    .replace(/[^a-zA-Z0-9_-]/g, "_")
+    .substring(0, 40) || "document";
+
+  const metadata = {
+    source: originalName,
+    source_mode: sourceMode,
+    source_url: sourceUrl,
+    pages,
+    chars: chars || fullText.length,
+    chunks: chunkTexts.length,
+    chunk_size: CHUNK_SIZE,
+    overlap: OVERLAP,
+    generated_at: new Date().toISOString(),
+    generated_from: "knowledge_chunks",
+  };
+
+  const readme = [
+    `# RAG-Ready Docs — ${originalName}`,
+    "",
+    `Generated: ${metadata.generated_at}`,
+    `Pages: ${metadata.pages}  |  Characters: ${metadata.chars}  |  Chunks: ${metadata.chunks}`,
+    "",
+    "## Files",
+    "| File | Description |",
+    "| ---- | ----------- |",
+    "| llms-full.txt | Reconstructed full text from indexed chunks |",
+    "| llms-medium.txt | First ~4 000 characters (section summary) |",
+    "| llms-small.txt | First ~1 000 characters (quick context) |",
+    "| chunks/chunk_NNNN.txt | Indexed chunks used by RAG retrieval |",
+    "| metadata.json | Import and generation metadata |",
+  ].join("\n");
+
+  const zipBuffer = await new Promise((resolve, reject) => {
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    const stream = new PassThrough();
+    const buffers = [];
+
+    stream.on("data", (chunk) => buffers.push(Buffer.from(chunk)));
+    stream.on("end", () => resolve(Buffer.concat(buffers)));
+    stream.on("error", reject);
+    archive.on("error", reject);
+
+    archive.pipe(stream);
+
+    archive.append(fullText, { name: `${baseName}/llms-full.txt` });
+    archive.append(fullText.slice(0, MEDIUM_LEN), { name: `${baseName}/llms-medium.txt` });
+    archive.append(fullText.slice(0, SMALL_LEN), { name: `${baseName}/llms-small.txt` });
+    archive.append(JSON.stringify(metadata, null, 2), { name: `${baseName}/metadata.json` });
+    archive.append(readme, { name: `${baseName}/README.md` });
+
+    chunkTexts.forEach((chunk, i) => {
+      const header = `[chunk:${i + 1}/${chunkTexts.length}] [source:${originalName}]\n\n`;
+      archive.append(`${header}${chunk}`, {
+        name: `${baseName}/chunks/chunk_${String(i).padStart(4, "0")}.txt`,
+      });
+    });
+
+    archive.finalize();
+  });
+
+  return { zipBuffer, metadata };
 }
 
 /** Write all files for one PDF and return path to the zip */
@@ -132,4 +214,4 @@ function cleanup(zipPath) {
   try { fs.unlinkSync(zipPath); } catch (_) {}
 }
 
-module.exports = { convertPdf, cleanup };
+module.exports = { convertPdf, buildRagZipBuffer, cleanup };

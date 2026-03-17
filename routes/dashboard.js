@@ -28,6 +28,7 @@ const {
   savePdfImport,
   getRecentPdfImports,
   getPdfImportById,
+  getChunksBySource,
 } = require("../services/dbService");
 const { getScheduledMeetings } = require("../services/calendarService");
 const { getTelegramProfilePhotoFileUrl } = require("../services/telegramService");
@@ -44,7 +45,7 @@ const {
   isProbablyPdf,
   processPdfBuffer,
 } = require("../services/pdfIngestionService");
-const { cleanup } = require("../services/pdfLLMService");
+const { buildRagZipBuffer } = require("../services/pdfLLMService");
 const logger = require("../utils/logger");
 
 const frontendUrl = (process.env.FRONTEND_URL || "").replace(/\/+$/, "");
@@ -211,8 +212,7 @@ function buildPdfDownloadName(fileName) {
 }
 
 function pdfImportToResponse(req, row) {
-  const zipPath = String(row.zip_path || "");
-  const zipAvailable = Boolean(zipPath) && fs.existsSync(path.resolve(zipPath));
+  const zipAvailable = Number(row.indexed_chunks || row.chunks || 0) > 0;
   return {
     id: Number(row.id),
     fileName: row.file_name,
@@ -475,11 +475,27 @@ router.get("/api/me/pdf-imports/:id/download", requireSession, async (req, res) 
     if (!importRecord) return res.status(404).json({ error: "Import not found" });
 
     const zipPath = path.resolve(String(importRecord.zip_path || ""));
-    if (!importRecord.zip_path || !fs.existsSync(zipPath)) {
+    if (importRecord.zip_path && fs.existsSync(zipPath)) {
+      return res.download(zipPath, importRecord.download_name || buildPdfDownloadName(importRecord.file_name));
+    }
+
+    const chunks = await getChunksBySource(importRecord.source_type, importRecord.source_id);
+    if (!chunks.length) {
       return res.status(410).json({ error: "ZIP output is no longer available for this import" });
     }
 
-    return res.download(zipPath, importRecord.download_name || buildPdfDownloadName(importRecord.file_name));
+    const { zipBuffer } = await buildRagZipBuffer({
+      originalName: importRecord.file_name,
+      sourceMode: importRecord.source_mode,
+      sourceUrl: importRecord.source_url,
+      pages: importRecord.pages,
+      chars: importRecord.chars,
+      chunks: chunks.map((row) => row.chunk_text),
+    });
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${importRecord.download_name || buildPdfDownloadName(importRecord.file_name)}"`);
+    return res.send(zipBuffer);
   } catch (err) {
     logger.error("Dashboard PDF ZIP download error:", err);
     return res.status(500).json({ error: "Failed to download ZIP output" });

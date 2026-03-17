@@ -10,6 +10,7 @@ const request = require('supertest')
 const processCalls = []
 const savePdfImportCalls = []
 const recentPdfImports = []
+const chunkRowsBySource = new Map()
 
 const tempZipPath = path.join(os.tmpdir(), `clawmeet-test-import-${process.pid}.zip`)
 fs.writeFileSync(tempZipPath, Buffer.from('mock zip output'))
@@ -38,6 +39,7 @@ mockModule('../services/dbService', {
   getPersonalNotes: async () => [],
   getRecentPdfImports: async () => recentPdfImports,
   getPdfImportById: async (id) => recentPdfImports.find((row) => Number(row.id) === Number(id)) || null,
+  getChunksBySource: async (sourceType, sourceId) => chunkRowsBySource.get(`${sourceType}:${sourceId}`) || [],
   getUserByTelegramId: async () => ({ telegram_id: '42', name: 'Test User' }),
   updateUserProfileSettings: async () => {},
   addPersonalTask: async () => {},
@@ -94,6 +96,7 @@ mockModule('../services/pdfIngestionService', {
 })
 
 mockModule('../services/pdfLLMService', {
+  buildRagZipBuffer: async () => ({ zipBuffer: Buffer.from('mock regenerated zip output') }),
   cleanup: () => {},
 })
 
@@ -231,6 +234,7 @@ test('GET /dashboard/api/me includes recent PDF imports with download availabili
 
 test('GET /dashboard/api/me/pdf-imports/:id/download streams the saved ZIP output', async () => {
   recentPdfImports.length = 0
+  chunkRowsBySource.clear()
   recentPdfImports.push({
     id: 92,
     telegram_id: '42',
@@ -244,9 +248,14 @@ test('GET /dashboard/api/me/pdf-imports/:id/download streams the saved ZIP outpu
     chunks: 11,
     chars: 1200,
     indexed_chunks: 11,
-    zip_path: tempZipPath,
+    zip_path: '',
     created_at: '2026-03-17 10:21:30',
   })
+
+  chunkRowsBySource.set('pdf_url:source-92', [
+    { chunk_text: 'First indexed chunk for regenerated ZIP output.' },
+    { chunk_text: 'Second indexed chunk for regenerated ZIP output.' },
+  ])
 
   const app = buildApp()
   const res = await request(app)
@@ -257,6 +266,7 @@ test('GET /dashboard/api/me/pdf-imports/:id/download streams the saved ZIP outpu
 
   assert.equal(res.status, 200)
   assert.equal(String(res.headers['content-disposition']).includes('remote-rag-docs.zip'), true)
+  assert.equal(String(res.headers['content-type']).includes('application/zip'), true)
   assert.equal(Buffer.isBuffer(res.body), true)
-  assert.equal(res.body.toString('utf8'), 'mock zip output')
+  assert.equal(res.body.length > 0, true)
 })

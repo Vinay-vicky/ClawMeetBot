@@ -684,10 +684,10 @@ export default function PersonalDashboard() {
                     <div className="pdf-history-actions">
                       {item.zipAvailable ? (
                         <a className="btn btn-save" href={backendUrl(item.downloadPath)}>
-                          Download ZIP
+                          Download (generate)
                         </a>
                       ) : (
-                        <span className="pdf-history-missing">ZIP unavailable</span>
+                        <span className="pdf-history-missing">Not enough indexed data yet</span>
                       )}
                     </div>
                   </div>
