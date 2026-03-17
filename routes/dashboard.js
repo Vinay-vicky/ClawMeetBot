@@ -352,6 +352,7 @@ router.post(
   requireJsonSession,
   express.raw({ type: ["application/pdf", "application/octet-stream"], limit: `${Math.ceil(DASHBOARD_PDF_MAX_BYTES / (1024 * 1024))}mb` }),
   async (req, res) => {
+    const uploadStages = ["validating", "processing", "indexing", "completed"];
     const fileBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || "");
     if (!fileBuffer.length) return res.status(400).json({ error: "Please choose a PDF file to upload." });
     if (!isProbablyPdf(fileBuffer)) return res.status(400).json({ error: "Only PDF uploads are supported." });
@@ -381,6 +382,7 @@ router.post(
 
       return res.json({
         ok: true,
+        status: "completed",
         importId,
         mode: "upload",
         fileName: originalName,
@@ -390,15 +392,27 @@ router.post(
         indexedChunks: result.indexedChunks,
         maxSize: formatBytes(DASHBOARD_PDF_MAX_BYTES),
         downloadPath: `/dashboard/api/me/pdf-imports/${importId}/download`,
+        pipeline: {
+          stages: uploadStages,
+          current: "completed",
+        },
       });
     } catch (err) {
       logger.error("Dashboard PDF upload error:", err);
-      return res.status(err.status || 500).json({ error: err.message || "Failed to import PDF" });
+      return res.status(err.status || 500).json({
+        error: err.message || "Failed to import PDF",
+        status: "failed",
+        pipeline: {
+          stages: uploadStages,
+          current: "failed",
+        },
+      });
     }
   },
 );
 
 router.post("/api/me/pdf-url", requireJsonSession, express.json({ limit: "256kb" }), async (req, res) => {
+  const urlStages = ["downloading", "processing", "indexing", "completed"];
   const url = String(req.body?.url || "").trim();
   if (!url) return res.status(400).json({ error: "Please paste a PDF URL." });
 
@@ -426,6 +440,7 @@ router.post("/api/me/pdf-url", requireJsonSession, express.json({ limit: "256kb"
 
     return res.json({
       ok: true,
+      status: "completed",
       importId,
       mode: "url",
       sourceUrl: url,
@@ -436,10 +451,21 @@ router.post("/api/me/pdf-url", requireJsonSession, express.json({ limit: "256kb"
       indexedChunks: result.indexedChunks,
       maxSize: formatBytes(DASHBOARD_PDF_MAX_BYTES),
       downloadPath: `/dashboard/api/me/pdf-imports/${importId}/download`,
+      pipeline: {
+        stages: urlStages,
+        current: "completed",
+      },
     });
   } catch (err) {
     logger.error("Dashboard PDF URL import error:", err);
-    return res.status(err.status || 500).json({ error: err.message || "Failed to import PDF from URL" });
+    return res.status(err.status || 500).json({
+      error: err.message || "Failed to import PDF from URL",
+      status: "failed",
+      pipeline: {
+        stages: urlStages,
+        current: "failed",
+      },
+    });
   }
 });
 

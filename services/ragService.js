@@ -33,6 +33,10 @@ function splitIntoChunks(text, chunkSize = 500, overlap = 50) {
   return chunks.filter((c) => c.length > 30);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // ── Embeddings (with cache) ───────────────────────────────────────────────────
 
 /**
@@ -138,19 +142,67 @@ function keywordScore(text, queryWords) {
  */
 async function indexText(text, sourceType, sourceId, sourceName) {
   if (!text || text.trim().length < 10) return 0;
-  const chunks = splitIntoChunks(text);
+
+  const maxChunks = Number.parseInt(process.env.RAG_MAX_CHUNKS || "0", 10);
+  const allChunks = splitIntoChunks(text);
+  const chunks = Number.isFinite(maxChunks) && maxChunks > 0
+    ? allChunks.slice(0, maxChunks)
+    : allChunks;
+
+  const batchSizeRaw = Number.parseInt(process.env.RAG_EMBED_BATCH_SIZE || "5", 10);
+  const embedBatchSize = Number.isFinite(batchSizeRaw) && batchSizeRaw > 0 ? batchSizeRaw : 5;
+  const delayRaw = Number.parseInt(process.env.RAG_EMBED_BATCH_DELAY_MS || "400", 10);
+  const embedBatchDelayMs = Number.isFinite(delayRaw) && delayRaw >= 0 ? delayRaw : 400;
+
   let saved = 0;
-  for (const chunk of chunks) {
-    const embedding = await embedText(chunk);
-    await saveChunk(
-      sourceType,
-      sourceId,
-      sourceName,
-      chunk,
-      embedding ? JSON.stringify(embedding) : null
-    );
-    saved++;
+
+  let embeddingsEnabled = Boolean(process.env.HF_TOKEN);
+  let fallbackWarned = false;
+
+  for (let i = 0; i < chunks.length; i += embedBatchSize) {
+    const batch = chunks.slice(i, i + embedBatchSize);
+    let embeddings = batch.map(() => null);
+
+    if (embeddingsEnabled) {
+      embeddings = await Promise.all(batch.map((chunk) => embedText(chunk)));
+      const successCount = embeddings.filter(Boolean).length;
+      if (successCount === 0) {
+        embeddingsEnabled = false;
+        if (!fallbackWarned) {
+          logger.warn(
+            "RAG: HF embeddings unavailable during indexing; falling back to keyword-only chunks for remaining content.",
+          );
+          fallbackWarned = true;
+        }
+      }
+    }
+
+    for (let j = 0; j < batch.length; j++) {
+      const chunk = batch[j];
+      const embedding = embeddings[j];
+      await saveChunk(
+        sourceType,
+        sourceId,
+        sourceName,
+        chunk,
+        embedding ? JSON.stringify(embedding) : null,
+      );
+      saved++;
+    }
+
+    const hasMore = i + embedBatchSize < chunks.length;
+    if (hasMore && embeddingsEnabled && embedBatchDelayMs > 0) {
+      await sleep(embedBatchDelayMs);
+    }
   }
+
+  const truncated = chunks.length < allChunks.length;
+  if (truncated) {
+    logger.warn(
+      `RAG: chunk cap reached (${chunks.length}/${allChunks.length}) [${sourceType}/${sourceName}]`,
+    );
+  }
+
   logger.info(`RAG: indexed ${saved} chunk(s) [${sourceType}/${sourceName}]`);
   return saved;
 }

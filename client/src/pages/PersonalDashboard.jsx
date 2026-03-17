@@ -43,6 +43,16 @@ const presetThemes = [
 
 const DASHBOARD_PDF_LIMIT_MB = 50
 const TELEGRAM_DIRECT_PDF_LIMIT_MB = 20
+const PDF_IMPORT_PIPELINES = {
+  upload: ['validating', 'processing', 'indexing', 'completed'],
+  url: ['downloading', 'processing', 'indexing', 'completed'],
+}
+
+function formatPipelineStage(stage) {
+  const value = String(stage || '').trim()
+  if (!value) return ''
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
 
 function safeAvatar(rawAvatar) {
   if (!rawAvatar || typeof rawAvatar !== 'object') return { ...defaultAvatar }
@@ -118,6 +128,7 @@ export default function PersonalDashboard() {
   const [telegramPhotoReloadKey, setTelegramPhotoReloadKey] = useState(0)
   const [pdfImportUrl, setPdfImportUrl] = useState('')
   const [pdfImportState, setPdfImportState] = useState({ busy: false, error: '', ok: '', result: null })
+  const [pdfProgress, setPdfProgress] = useState({ steps: [], index: 0 })
   const { search } = useLocation()
 
   const user = data?.user || null
@@ -223,6 +234,17 @@ export default function PersonalDashboard() {
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [user?.telegram_id, telegramPhotoReloadKey])
+
+  useEffect(() => {
+    if (!pdfImportState.busy || !pdfProgress.steps.length) return undefined
+    const timer = window.setInterval(() => {
+      setPdfProgress((current) => {
+        const nextIndex = Math.min(current.index + 1, Math.max(current.steps.length - 1, 0))
+        return { ...current, index: nextIndex }
+      })
+    }, 1200)
+    return () => window.clearInterval(timer)
+  }, [pdfImportState.busy, pdfProgress.steps.length])
 
   const activePreset = useMemo(
     () => presetThemes.find(preset => matchesPreset(theme, avatarConfig, preset))?.name || '',
@@ -421,6 +443,10 @@ export default function PersonalDashboard() {
       return
     }
 
+    setPdfProgress({
+      steps: [...PDF_IMPORT_PIPELINES.upload],
+      index: 0,
+    })
     setPdfImportState({ busy: true, error: '', ok: '', result: null })
 
     try {
@@ -446,9 +472,20 @@ export default function PersonalDashboard() {
         ok: `${payload.fileName} imported and indexed successfully.`,
         result: payload,
       })
+      setPdfProgress((current) => {
+        const stages = Array.isArray(payload?.pipeline?.stages) && payload.pipeline.stages.length
+          ? payload.pipeline.stages
+          : current.steps
+        const completedIndex = stages.indexOf(payload?.pipeline?.current || 'completed')
+        return {
+          steps: stages,
+          index: completedIndex >= 0 ? completedIndex : Math.max(stages.length - 1, 0),
+        }
+      })
       refresh()
     } catch (e) {
       setPdfImportState({ busy: false, error: e.message || 'Failed to import PDF', ok: '', result: null })
+      setPdfProgress((current) => ({ ...current, index: Math.max(current.steps.length - 1, 0) }))
     }
   }
 
@@ -460,6 +497,10 @@ export default function PersonalDashboard() {
       return
     }
 
+    setPdfProgress({
+      steps: [...PDF_IMPORT_PIPELINES.url],
+      index: 0,
+    })
     setPdfImportState({ busy: true, error: '', ok: '', result: null })
 
     try {
@@ -483,9 +524,20 @@ export default function PersonalDashboard() {
         ok: `${payload.fileName} downloaded and indexed successfully.`,
         result: payload,
       })
+      setPdfProgress((current) => {
+        const stages = Array.isArray(payload?.pipeline?.stages) && payload.pipeline.stages.length
+          ? payload.pipeline.stages
+          : current.steps
+        const completedIndex = stages.indexOf(payload?.pipeline?.current || 'completed')
+        return {
+          steps: stages,
+          index: completedIndex >= 0 ? completedIndex : Math.max(stages.length - 1, 0),
+        }
+      })
       refresh()
     } catch (e) {
       setPdfImportState({ busy: false, error: e.message || 'Failed to import PDF from URL', ok: '', result: null })
+      setPdfProgress((current) => ({ ...current, index: Math.max(current.steps.length - 1, 0) }))
     }
   }
 
@@ -578,6 +630,11 @@ export default function PersonalDashboard() {
 
           {pdfImportState.ok && <div className="msg-ok pdf-import-status">{pdfImportState.ok}</div>}
           {pdfImportState.error && <div className="msg-err pdf-import-status">{pdfImportState.error}</div>}
+          {pdfImportState.busy && pdfProgress.steps.length > 0 && (
+            <div className="msg-ok pdf-import-status">
+              Stage: {formatPipelineStage(pdfProgress.steps[Math.min(pdfProgress.index, pdfProgress.steps.length - 1)])}
+            </div>
+          )}
 
           {pdfImportState.result && (
             <>

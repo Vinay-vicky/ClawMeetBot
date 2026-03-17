@@ -41,6 +41,14 @@ const allowedOrigins = new Set([
   ...corsOriginsFromEnv,
 ].filter(Boolean));
 
+function isLocalDevOrigin(hostname) {
+  return hostname === "localhost" || hostname === "127.0.0.1";
+}
+
+function isVercelPreviewOrigin(hostname) {
+  return hostname === "vercel.app" || hostname.endsWith(".vercel.app");
+}
+
 // Sentry request handler must be first middleware
 if (process.env.SENTRY_DSN) app.use(Sentry.Handlers.requestHandler());
 
@@ -50,6 +58,16 @@ const corsOptions = {
     if (!origin) return callback(null, true);
     const normalized = String(origin).replace(/\/+$/, "");
     if (allowedOrigins.has(normalized)) return callback(null, true);
+
+    try {
+      const parsed = new URL(normalized);
+      if (isLocalDevOrigin(parsed.hostname) || isVercelPreviewOrigin(parsed.hostname)) {
+        return callback(null, true);
+      }
+    } catch {
+      // fall through to blocked warning below
+    }
+
     logger.warn(`CORS blocked for origin: ${origin}`);
     return callback(new Error("Not allowed by CORS"));
   },
