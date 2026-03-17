@@ -126,6 +126,23 @@ async function initDb() {
       embedding   TEXT NOT NULL,
       created_at  TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS pdf_imports (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      telegram_id    TEXT NOT NULL,
+      file_name      TEXT NOT NULL,
+      download_name  TEXT,
+      source_mode    TEXT NOT NULL,
+      source_url     TEXT DEFAULT '',
+      source_type    TEXT NOT NULL,
+      source_id      TEXT NOT NULL,
+      pages          INTEGER DEFAULT 0,
+      chunks         INTEGER DEFAULT 0,
+      chars          INTEGER DEFAULT 0,
+      indexed_chunks INTEGER DEFAULT 0,
+      zip_path       TEXT DEFAULT '',
+      created_at     TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   await ensureColumn("users", "profile_theme", "TEXT DEFAULT 'dark'");
@@ -654,6 +671,51 @@ async function updatePersonalNote(id, telegramId, note) {
   return res.rowsAffected;
 }
 
+// ── PDF Import History ───────────────────────────────────────────────────────
+
+async function savePdfImport(record) {
+  const res = await db.execute({
+    sql: `INSERT INTO pdf_imports (
+            telegram_id, file_name, download_name, source_mode, source_url,
+            source_type, source_id, pages, chunks, chars, indexed_chunks, zip_path
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+    args: [
+      String(record.telegramId),
+      record.fileName,
+      record.downloadName || null,
+      record.sourceMode,
+      record.sourceUrl || "",
+      record.sourceType,
+      String(record.sourceId),
+      Number(record.pages || 0),
+      Number(record.chunks || 0),
+      Number(record.chars || 0),
+      Number(record.indexedChunks || 0),
+      record.zipPath || "",
+    ],
+  });
+  return Number(res.lastInsertRowid);
+}
+
+async function getRecentPdfImports(telegramId, limit = 10) {
+  const res = await db.execute({
+    sql: `SELECT * FROM pdf_imports
+          WHERE telegram_id = ?
+          ORDER BY created_at DESC, id DESC
+          LIMIT ?`,
+    args: [String(telegramId), Number(limit)],
+  });
+  return res.rows;
+}
+
+async function getPdfImportById(id, telegramId) {
+  const res = await db.execute({
+    sql: "SELECT * FROM pdf_imports WHERE id = ? AND telegram_id = ? LIMIT 1",
+    args: [Number(id), String(telegramId)],
+  });
+  return res.rows[0] || null;
+}
+
 module.exports = {
   initDb,
   saveMeeting, hasReminderBeenSent, markReminderSent, saveSummary,
@@ -668,6 +730,7 @@ module.exports = {
   // Personal workspace
   addPersonalTask, getPersonalTasks, donePersonalTask, deletePersonalTask, updatePersonalTask,
   addPersonalNote, getPersonalNotes, deletePersonalNote, updatePersonalNote,
+  savePdfImport, getRecentPdfImports, getPdfImportById,
   // Users
   upsertUser, getUserByTelegramId, generateLinkToken, getUserByLinkToken,
   getUsersPublicProfiles,

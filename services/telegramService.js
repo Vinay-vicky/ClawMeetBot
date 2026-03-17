@@ -9,7 +9,12 @@ const { getRecentMeetings, getPendingTasks, markTaskDone, getMeetingByKeyword, g
         upsertUser, generateLinkToken, saveTeamTask } = require("./dbService");
 const { getScheduledMeetings, createTeamsMeeting, deleteCalendarEvent, getMeetingRecordings } = require("./calendarService");
 const { parseNaturalLanguageCommand } = require("./aiSummaryService");
-const { convertPdf, cleanup } = require("./pdfLLMService");
+const { cleanup } = require("./pdfLLMService");
+const {
+  TELEGRAM_PDF_MAX_BYTES,
+  formatBytes,
+  processPdfBuffer,
+} = require("./pdfIngestionService");
 const { indexText, askKnowledge } = require("./ragService");
 const { enqueue } = require("../utils/messageQueue");
 
@@ -172,6 +177,11 @@ async function getTelegramProfilePhotoFileUrl(telegramId) {
     logger.warn(`Telegram profile photo lookup failed for ${telegramId}: ${err.message}`);
     return null;
   }
+}
+
+function getAppBaseUrl() {
+  return (process.env.FRONTEND_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`)
+    .replace(/\/+$/, "");
 }
 
 // /start — welcome message
@@ -1524,6 +1534,29 @@ bot.on("message", async (msg) => {
   if (msg.document && msg.document.mime_type === "application/pdf") {
     const chatId = msg.chat.id;
     const fileName = msg.document.file_name || "document.pdf";
+    const fileSize = Number(msg.document.file_size || 0);
+
+    if (fileSize > TELEGRAM_PDF_MAX_BYTES) {
+      const base = getAppBaseUrl();
+      const dashboardUrl = `${base}/dashboard/login`;
+      await bot.sendMessage(
+        chatId,
+        [
+          `📦 <b>${fileName}</b> is too large for direct Telegram processing.`,
+          `Telegram file size: <b>${formatBytes(fileSize)}</b>`,
+          `Direct bot limit: <b>${formatBytes(TELEGRAM_PDF_MAX_BYTES)}</b>`,
+          "",
+          "<b>Best workaround:</b>",
+          `1. Run <code>/myprofile</code> and open your one-click dashboard login link.`,
+          `2. Upload the PDF from <b>My Dashboard</b> or paste a public PDF URL there.`,
+          "",
+          `<a href=\"${dashboardUrl}\">Open dashboard login</a>`,
+        ].join("\n"),
+        { parse_mode: "HTML", disable_web_page_preview: true },
+      );
+      return;
+    }
+
     bot.sendMessage(chatId, `📄 <b>Processing <code>${fileName}</code>…</b>\nExtracting text and generating RAG-ready docs. This may take a moment.`, { parse_mode: "HTML" });
     try {
       const fileLink = await bot.getFileLink(msg.document.file_id);
@@ -1538,11 +1571,16 @@ bot.on("message", async (msg) => {
           res.on("error", reject);
         }).on("error", reject);
       });
-      const { zipPath, meta } = await convertPdf(fileBuffer, fileName);
+      const { zipPath, meta, indexedChunks } = await processPdfBuffer(fileBuffer, fileName, {
+        sourceType: "pdf_telegram",
+        sourceId: msg.document.file_unique_id || `${chatId}_${fileName}`,
+        sourceName: fileName,
+      });
       await bot.sendDocument(chatId, zipPath, {
         caption: [
           `✅ <b>RAG Docs ready</b> — <code>${fileName}</code>`,
           `📑 ${meta.pages} page${meta.pages !== 1 ? "s" : ""}  |  🧩 ${meta.chunks} chunks  |  📝 ${meta.chars.toLocaleString()} chars`,
+          `🧠 Indexed into knowledge base: <b>${indexedChunks}</b> chunk${indexedChunks !== 1 ? "s" : ""}`,
           "",
           "<b>Inside the ZIP:</b>",
           "• <code>llms-full.txt</code> — complete text",

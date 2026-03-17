@@ -41,6 +41,9 @@ const presetThemes = [
   },
 ]
 
+const DASHBOARD_PDF_LIMIT_MB = 50
+const TELEGRAM_DIRECT_PDF_LIMIT_MB = 20
+
 function safeAvatar(rawAvatar) {
   if (!rawAvatar || typeof rawAvatar !== 'object') return { ...defaultAvatar }
   return {
@@ -113,11 +116,14 @@ export default function PersonalDashboard() {
   const [telegramPhotoReady, setTelegramPhotoReady] = useState(false)
   const [telegramPhotoLoading, setTelegramPhotoLoading] = useState(false)
   const [telegramPhotoReloadKey, setTelegramPhotoReloadKey] = useState(0)
+  const [pdfImportUrl, setPdfImportUrl] = useState('')
+  const [pdfImportState, setPdfImportState] = useState({ busy: false, error: '', ok: '', result: null })
   const { search } = useLocation()
 
   const user = data?.user || null
   const tasks = data?.tasks || []
   const notes = data?.notes || []
+  const imports = data?.imports || []
   const name     = user?.name || 'Team Member'
   const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
   const overdueCount = tasks.filter(t => t.deadline && new Date(t.deadline) < new Date()).length
@@ -395,6 +401,92 @@ export default function PersonalDashboard() {
     refresh()
   }
 
+  async function uploadKnowledgePdf(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') {
+      setPdfImportState({ busy: false, error: 'Please choose a PDF file.', ok: '', result: null })
+      return
+    }
+
+    if (file.size > DASHBOARD_PDF_LIMIT_MB * 1024 * 1024) {
+      setPdfImportState({
+        busy: false,
+        error: `PDF is too large for dashboard upload (max ${DASHBOARD_PDF_LIMIT_MB} MB).`,
+        ok: '',
+        result: null,
+      })
+      return
+    }
+
+    setPdfImportState({ busy: true, error: '', ok: '', result: null })
+
+    try {
+      const res = await fetch(backendUrl('/dashboard/api/me/pdf-upload'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/pdf',
+          Accept: 'application/json',
+          'X-Requested-With': 'fetch',
+          'X-File-Name': encodeURIComponent(file.name),
+        },
+        credentials: 'include',
+        body: file,
+      })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(payload.error || 'Failed to import PDF')
+
+      setPdfImportState({
+        busy: false,
+        error: '',
+        ok: `${payload.fileName} imported and indexed successfully.`,
+        result: payload,
+      })
+      refresh()
+    } catch (e) {
+      setPdfImportState({ busy: false, error: e.message || 'Failed to import PDF', ok: '', result: null })
+    }
+  }
+
+  async function submitPdfUrl(event) {
+    event.preventDefault()
+    const cleanUrl = pdfImportUrl.trim()
+    if (!cleanUrl) {
+      setPdfImportState({ busy: false, error: 'Paste a public PDF URL first.', ok: '', result: null })
+      return
+    }
+
+    setPdfImportState({ busy: true, error: '', ok: '', result: null })
+
+    try {
+      const res = await fetch(backendUrl('/dashboard/api/me/pdf-url'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Requested-With': 'fetch',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ url: cleanUrl }),
+      })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(payload.error || 'Failed to import PDF from URL')
+
+      setPdfImportUrl('')
+      setPdfImportState({
+        busy: false,
+        error: '',
+        ok: `${payload.fileName} downloaded and indexed successfully.`,
+        result: payload,
+      })
+      refresh()
+    } catch (e) {
+      setPdfImportState({ busy: false, error: e.message || 'Failed to import PDF from URL', ok: '', result: null })
+    }
+  }
+
   return (
     <div>
       <div className="hdr">
@@ -437,6 +529,117 @@ export default function PersonalDashboard() {
             <button type="button" className="btn btn-edit" onClick={openProfileEditor}>Edit Profile</button>
             {saveStatus.ok && <span className="profile-ok">{saveStatus.ok}</span>}
             {saveStatus.error && <span className="profile-err">{saveStatus.error}</span>}
+          </div>
+        </div>
+
+        <div className="card pdf-import-card">
+          <div className="card-hdr">
+            <h2>PDF Knowledge Import</h2>
+            <span>Upload large PDFs or paste a public PDF link</span>
+          </div>
+
+          <p className="pdf-import-copy">
+            Telegram still works best for PDFs under {TELEGRAM_DIRECT_PDF_LIMIT_MB} MB. For larger files, upload here or paste a direct PDF URL and I&apos;ll index it into the knowledge base for <code>/ask</code>.
+          </p>
+
+          <div className="pdf-import-grid">
+            <div className="pdf-import-panel">
+              <strong>Upload from device</strong>
+              <p>Ideal for private or local PDFs up to {DASHBOARD_PDF_LIMIT_MB} MB.</p>
+              <label className="btn btn-add upload-btn pdf-upload-trigger">
+                {pdfImportState.busy ? 'Importing PDF...' : 'Choose PDF'}
+                <input type="file" accept="application/pdf,.pdf" onChange={uploadKnowledgePdf} disabled={pdfImportState.busy} />
+              </label>
+            </div>
+
+            <form className="pdf-import-panel pdf-import-form" onSubmit={submitPdfUrl}>
+              <strong>Import from URL</strong>
+              <p>Paste a public PDF link and the server will fetch and index it for you.</p>
+              <input
+                className="inp pdf-url-input"
+                type="url"
+                value={pdfImportUrl}
+                onChange={(e) => setPdfImportUrl(e.target.value)}
+                placeholder="https://example.com/handbook.pdf"
+                disabled={pdfImportState.busy}
+              />
+              <button type="submit" className="btn btn-save" disabled={pdfImportState.busy}>
+                {pdfImportState.busy ? 'Importing...' : 'Import URL'}
+              </button>
+            </form>
+          </div>
+
+          <div className="pdf-import-hints">
+            <span>• Imported PDFs are added to the shared knowledge base used by <code>/ask</code>.</span>
+            <span>• Direct URL imports work best with publicly accessible <code>.pdf</code> links.</span>
+          </div>
+
+          {pdfImportState.ok && <div className="msg-ok pdf-import-status">{pdfImportState.ok}</div>}
+          {pdfImportState.error && <div className="msg-err pdf-import-status">{pdfImportState.error}</div>}
+
+          {pdfImportState.result && (
+            <>
+              <div className="pdf-import-result">
+                <div><span>File</span><strong>{pdfImportState.result.fileName}</strong></div>
+                <div><span>Pages</span><strong>{pdfImportState.result.pages}</strong></div>
+                <div><span>Chunks</span><strong>{pdfImportState.result.chunks}</strong></div>
+                <div><span>Indexed</span><strong>{pdfImportState.result.indexedChunks}</strong></div>
+              </div>
+              {pdfImportState.result.downloadPath && (
+                <div className="pdf-import-actions">
+                  <a className="btn btn-save" href={backendUrl(pdfImportState.result.downloadPath)}>
+                    Download latest ZIP
+                  </a>
+                </div>
+              )}
+            </>
+          )}
+
+          <div className="pdf-history-card">
+            <div className="card-hdr">
+              <h2>Recent Imported PDFs</h2>
+              <span>{imports.length} recent item{imports.length === 1 ? '' : 's'}</span>
+            </div>
+
+            {imports.length ? (
+              <div className="pdf-history-list">
+                {imports.map((item) => (
+                  <div key={item.id} className="pdf-history-item">
+                    <div className="pdf-history-copy">
+                      <strong>{item.fileName}</strong>
+                      <div className="pdf-history-meta">
+                        <span>{item.sourceMode === 'url' ? 'URL import' : 'Upload import'}</span>
+                        <span>{item.pages} pages</span>
+                        <span>{item.chunks} chunks</span>
+                        <span>{item.indexedChunks} indexed</span>
+                      </div>
+                      <small>{item.createdAt ? new Date(item.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : 'Just now'}</small>
+                      {item.sourceUrl && (
+                        <div className="pdf-history-linkrow">
+                          <a href={item.sourceUrl} target="_blank" rel="noreferrer" className="pdf-source-link">
+                            View source URL
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                    <div className="pdf-history-actions">
+                      {item.zipAvailable ? (
+                        <a className="btn btn-save" href={backendUrl(item.downloadPath)}>
+                          Download ZIP
+                        </a>
+                      ) : (
+                        <span className="pdf-history-missing">ZIP unavailable</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty pdf-history-empty">
+                No PDF imports yet.<br />
+                <small>Upload a file above or paste a PDF URL to start building your history.</small>
+              </div>
+            )}
           </div>
         </div>
 

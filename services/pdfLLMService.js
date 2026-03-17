@@ -124,7 +124,7 @@ async function convertPdf(fileBuffer, originalName) {
   fs.rmSync(folderPath, { recursive: true, force: true });
 
   logger.info(`pdfLLMService: created ${zipPath} (${chunks.length} chunks, ${meta.pages} pages)`);
-  return { zipPath, meta };
+  return { zipPath, meta, text };
 }
 
 /** Delete the zip file after it has been sent */

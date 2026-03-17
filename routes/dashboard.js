@@ -1,6 +1,7 @@
 "use strict";
 const express = require("express");
 const crypto = require("crypto");
+const fs = require("fs");
 const path = require("path");
 const router = express.Router();
 const {
@@ -24,6 +25,9 @@ const {
   addPersonalNote,
   deletePersonalNote,
   updatePersonalNote,
+  savePdfImport,
+  getRecentPdfImports,
+  getPdfImportById,
 } = require("../services/dbService");
 const { getScheduledMeetings } = require("../services/calendarService");
 const { getTelegramProfilePhotoFileUrl } = require("../services/telegramService");
@@ -32,6 +36,15 @@ const {
   uploadProfileImageDataUrl,
   deleteImageByPublicId,
 } = require("../services/cloudinaryService");
+const {
+  DASHBOARD_PDF_MAX_BYTES,
+  downloadPdfFromUrl,
+  ensurePdfFileName,
+  formatBytes,
+  isProbablyPdf,
+  processPdfBuffer,
+} = require("../services/pdfIngestionService");
+const { cleanup } = require("../services/pdfLLMService");
 const logger = require("../utils/logger");
 
 const frontendUrl = (process.env.FRONTEND_URL || "").replace(/\/+$/, "");
@@ -182,6 +195,41 @@ function parseAvatar(value) {
   }
 }
 
+function sanitizeHeaderFileName(value) {
+  if (Array.isArray(value)) return sanitizeHeaderFileName(value[0]);
+  try {
+    return ensurePdfFileName(decodeURIComponent(String(value || "document.pdf")));
+  } catch {
+    return ensurePdfFileName(String(value || "document.pdf"));
+  }
+}
+
+function buildPdfDownloadName(fileName) {
+  const safeFileName = ensurePdfFileName(fileName || "document.pdf");
+  const baseName = safeFileName.replace(/\.pdf$/i, "").replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "document";
+  return `${baseName}-rag-docs.zip`;
+}
+
+function pdfImportToResponse(req, row) {
+  const zipPath = String(row.zip_path || "");
+  const zipAvailable = Boolean(zipPath) && fs.existsSync(path.resolve(zipPath));
+  return {
+    id: Number(row.id),
+    fileName: row.file_name,
+    downloadName: row.download_name || buildPdfDownloadName(row.file_name),
+    sourceMode: row.source_mode,
+    sourceUrl: row.source_url || "",
+    pages: Number(row.pages || 0),
+    chunks: Number(row.chunks || 0),
+    chars: Number(row.chars || 0),
+    indexedChunks: Number(row.indexed_chunks || 0),
+    createdAt: row.created_at,
+    zipAvailable,
+    downloadPath: zipAvailable ? `/dashboard/api/me/pdf-imports/${row.id}/download` : "",
+    downloadUrl: zipAvailable ? buildFrontendUrl(req, `/api/me/pdf-imports/${row.id}/download`) : "",
+  };
+}
+
 router.post("/task/:id/done", authCheck, async (req, res) => {
   try {
     await markTaskDone(req.params.id);
@@ -282,14 +330,133 @@ router.get("/api/public", async (req, res) => {
 router.get("/api/me", requireJsonSession, async (req, res) => {
   const telegramId = req.session.tid;
   try {
-    const [user, tasks, notes] = await Promise.all([
+    const [user, tasks, notes, imports] = await Promise.all([
       getUserByTelegramId(telegramId),
       getPersonalTasks(telegramId),
       getPersonalNotes(telegramId, 30),
+      getRecentPdfImports(telegramId, 8),
     ]);
-    res.json({ user: user || { name: req.session.name, telegram_id: telegramId }, tasks, notes });
+    res.json({
+      user: user || { name: req.session.name, telegram_id: telegramId },
+      tasks,
+      notes,
+      imports: imports.map((row) => pdfImportToResponse(req, row)),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post(
+  "/api/me/pdf-upload",
+  requireJsonSession,
+  express.raw({ type: ["application/pdf", "application/octet-stream"], limit: `${Math.ceil(DASHBOARD_PDF_MAX_BYTES / (1024 * 1024))}mb` }),
+  async (req, res) => {
+    const fileBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || "");
+    if (!fileBuffer.length) return res.status(400).json({ error: "Please choose a PDF file to upload." });
+    if (!isProbablyPdf(fileBuffer)) return res.status(400).json({ error: "Only PDF uploads are supported." });
+
+    const originalName = sanitizeHeaderFileName(req.headers["x-file-name"]);
+
+    try {
+      const result = await processPdfBuffer(fileBuffer, originalName, {
+        sourceType: "pdf_upload",
+        sourceName: originalName,
+      });
+
+      const importId = await savePdfImport({
+        telegramId: req.session.tid,
+        fileName: originalName,
+        downloadName: buildPdfDownloadName(originalName),
+        sourceMode: "upload",
+        sourceUrl: "",
+        sourceType: "pdf_upload",
+        sourceId: result.sourceId,
+        pages: result.meta.pages,
+        chunks: result.meta.chunks,
+        chars: result.meta.chars,
+        indexedChunks: result.indexedChunks,
+        zipPath: result.zipPath,
+      });
+
+      return res.json({
+        ok: true,
+        importId,
+        mode: "upload",
+        fileName: originalName,
+        pages: result.meta.pages,
+        chunks: result.meta.chunks,
+        chars: result.meta.chars,
+        indexedChunks: result.indexedChunks,
+        maxSize: formatBytes(DASHBOARD_PDF_MAX_BYTES),
+        downloadPath: `/dashboard/api/me/pdf-imports/${importId}/download`,
+      });
+    } catch (err) {
+      logger.error("Dashboard PDF upload error:", err);
+      return res.status(err.status || 500).json({ error: err.message || "Failed to import PDF" });
+    }
+  },
+);
+
+router.post("/api/me/pdf-url", requireJsonSession, express.json({ limit: "256kb" }), async (req, res) => {
+  const url = String(req.body?.url || "").trim();
+  if (!url) return res.status(400).json({ error: "Please paste a PDF URL." });
+
+  try {
+    const download = await downloadPdfFromUrl(url, { maxBytes: DASHBOARD_PDF_MAX_BYTES });
+    const result = await processPdfBuffer(download.buffer, download.fileName, {
+      sourceType: "pdf_url",
+      sourceName: download.fileName,
+    });
+
+    const importId = await savePdfImport({
+      telegramId: req.session.tid,
+      fileName: download.fileName,
+      downloadName: buildPdfDownloadName(download.fileName),
+      sourceMode: "url",
+      sourceUrl: url,
+      sourceType: "pdf_url",
+      sourceId: result.sourceId,
+      pages: result.meta.pages,
+      chunks: result.meta.chunks,
+      chars: result.meta.chars,
+      indexedChunks: result.indexedChunks,
+      zipPath: result.zipPath,
+    });
+
+    return res.json({
+      ok: true,
+      importId,
+      mode: "url",
+      sourceUrl: url,
+      fileName: download.fileName,
+      pages: result.meta.pages,
+      chunks: result.meta.chunks,
+      chars: result.meta.chars,
+      indexedChunks: result.indexedChunks,
+      maxSize: formatBytes(DASHBOARD_PDF_MAX_BYTES),
+      downloadPath: `/dashboard/api/me/pdf-imports/${importId}/download`,
+    });
+  } catch (err) {
+    logger.error("Dashboard PDF URL import error:", err);
+    return res.status(err.status || 500).json({ error: err.message || "Failed to import PDF from URL" });
+  }
+});
+
+router.get("/api/me/pdf-imports/:id/download", requireSession, async (req, res) => {
+  try {
+    const importRecord = await getPdfImportById(req.params.id, req.session.tid);
+    if (!importRecord) return res.status(404).json({ error: "Import not found" });
+
+    const zipPath = path.resolve(String(importRecord.zip_path || ""));
+    if (!importRecord.zip_path || !fs.existsSync(zipPath)) {
+      return res.status(410).json({ error: "ZIP output is no longer available for this import" });
+    }
+
+    return res.download(zipPath, importRecord.download_name || buildPdfDownloadName(importRecord.file_name));
+  } catch (err) {
+    logger.error("Dashboard PDF ZIP download error:", err);
+    return res.status(500).json({ error: "Failed to download ZIP output" });
   }
 });
 
