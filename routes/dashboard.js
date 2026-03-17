@@ -195,8 +195,8 @@ function parseAvatar(value) {
   }
 }
 
-function sanitizeHeaderFileName(value) {
-  if (Array.isArray(value)) return sanitizeHeaderFileName(value[0]);
+function sanitizeProvidedFileName(value) {
+  if (Array.isArray(value)) return sanitizeProvidedFileName(value[0]);
   try {
     return ensurePdfFileName(decodeURIComponent(String(value || "document.pdf")));
   } catch {
@@ -356,7 +356,7 @@ router.post(
     if (!fileBuffer.length) return res.status(400).json({ error: "Please choose a PDF file to upload." });
     if (!isProbablyPdf(fileBuffer)) return res.status(400).json({ error: "Only PDF uploads are supported." });
 
-    const originalName = sanitizeHeaderFileName(req.headers["x-file-name"]);
+    const originalName = sanitizeProvidedFileName(req.query?.fileName || req.headers["x-file-name"]);
 
     try {
       const result = await processPdfBuffer(fileBuffer, originalName, {

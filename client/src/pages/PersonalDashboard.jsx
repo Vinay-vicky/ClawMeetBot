@@ -424,13 +424,15 @@ export default function PersonalDashboard() {
     setPdfImportState({ busy: true, error: '', ok: '', result: null })
 
     try {
-      const res = await fetch(backendUrl('/dashboard/api/me/pdf-upload'), {
+      const uploadUrl = new URL(backendUrl('/dashboard/api/me/pdf-upload'), window.location.origin)
+      uploadUrl.searchParams.set('fileName', file.name)
+
+      const res = await fetch(uploadUrl.toString(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/pdf',
           Accept: 'application/json',
           'X-Requested-With': 'fetch',
-          'X-File-Name': encodeURIComponent(file.name),
         },
         credentials: 'include',
         body: file,

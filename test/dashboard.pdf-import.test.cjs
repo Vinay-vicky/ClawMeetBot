@@ -136,10 +136,9 @@ test('POST /dashboard/api/me/pdf-upload imports a PDF for an authenticated user'
 
   const app = buildApp()
   const res = await request(app)
-    .post('/dashboard/api/me/pdf-upload')
+    .post('/dashboard/api/me/pdf-upload?fileName=' + encodeURIComponent('team-handbook.pdf'))
     .set('Cookie', sessionCookie(42))
     .set('Content-Type', 'application/pdf')
-    .set('X-File-Name', encodeURIComponent('team-handbook.pdf'))
     .send(Buffer.from('%PDF-1.7 mock upload'))
 
   assert.equal(res.status, 200)

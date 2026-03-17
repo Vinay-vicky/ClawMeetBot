@@ -55,7 +55,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-dashboard-token", "x-requested-with"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-dashboard-token", "x-requested-with", "x-file-name"],
 };
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
