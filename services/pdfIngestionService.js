@@ -5,6 +5,7 @@ const path = require("path");
 const logger = require("../utils/logger");
 const { convertPdf } = require("./pdfLLMService");
 const { reindexSource } = require("./ragService");
+const { importFromUrl } = require("./importService");
 
 const MB = 1024 * 1024;
 const DEFAULT_TELEGRAM_PDF_MAX_BYTES = 20 * MB;
@@ -44,85 +45,30 @@ function makeSourceId(sourceType, sourceName, text) {
     .slice(0, 20);
 }
 
-function fileNameFromUrl(inputUrl) {
-  try {
-    const url = new URL(inputUrl);
-    const lastSegment = url.pathname.split("/").filter(Boolean).pop();
-    return ensurePdfFileName(lastSegment || "document.pdf");
-  } catch {
-    return "document.pdf";
-  }
-}
-
-function fileNameFromDisposition(headerValue) {
-  const raw = String(headerValue || "");
-  const utf8Match = raw.match(/filename\*=UTF-8''([^;]+)/i);
-  if (utf8Match && utf8Match[1]) {
-    try {
-      return ensurePdfFileName(decodeURIComponent(utf8Match[1]));
-    } catch {
-      return ensurePdfFileName(utf8Match[1]);
-    }
-  }
-  const fallbackMatch = raw.match(/filename="?([^";]+)"?/i);
-  return fallbackMatch && fallbackMatch[1] ? ensurePdfFileName(fallbackMatch[1]) : null;
-}
-
 async function downloadPdfFromUrl(inputUrl, options = {}) {
   const maxBytes = Number(options.maxBytes) || DASHBOARD_PDF_MAX_BYTES;
-  let url;
   try {
-    url = new URL(String(inputUrl || "").trim());
-  } catch {
-    const err = new Error("Please enter a valid PDF URL.");
-    err.status = 400;
+    const imported = await importFromUrl(inputUrl, {
+      maxBytes,
+      isPdfBuffer: isProbablyPdf,
+      fileNameSanitizer: ensurePdfFileName,
+    });
+
+    return {
+      buffer: imported.buffer,
+      fileName: imported.fileName,
+      contentType: imported.contentType,
+      source: imported.source,
+      normalizedUrl: imported.normalizedUrl,
+    };
+  } catch (err) {
+    if (err && err.status === 413) {
+      const sizeErr = new Error(`That PDF is too large for dashboard import (> ${formatBytes(maxBytes)}).`);
+      sizeErr.status = 413;
+      throw sizeErr;
+    }
     throw err;
   }
-
-  if (!["http:", "https:"].includes(url.protocol)) {
-    const err = new Error("Only http(s) PDF URLs are supported.");
-    err.status = 400;
-    throw err;
-  }
-
-  const response = await fetch(url, {
-    redirect: "follow",
-    headers: { "user-agent": "ClawMeetBot/1.0 PDF Import" },
-  });
-
-  if (!response.ok) {
-    const err = new Error(`Could not download that PDF (HTTP ${response.status}).`);
-    err.status = 400;
-    throw err;
-  }
-
-  const contentLength = Number.parseInt(response.headers.get("content-length") || "", 10);
-  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    const err = new Error(`That PDF is too large for dashboard import (${formatBytes(contentLength)} > ${formatBytes(maxBytes)}).`);
-    err.status = 413;
-    throw err;
-  }
-
-  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
-  const candidateName =
-    fileNameFromDisposition(response.headers.get("content-disposition")) ||
-    fileNameFromUrl(url.toString());
-  const looksLikePdfByMetadata = contentType.includes("application/pdf") || /\.pdf$/i.test(candidateName);
-
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.length > maxBytes) {
-    const err = new Error(`That PDF is too large for dashboard import (${formatBytes(buffer.length)} > ${formatBytes(maxBytes)}).`);
-    err.status = 413;
-    throw err;
-  }
-
-  if (!looksLikePdfByMetadata && !isProbablyPdf(buffer)) {
-    const err = new Error("The provided URL does not appear to be a PDF file.");
-    err.status = 400;
-    throw err;
-  }
-
-  return { buffer, fileName: candidateName, contentType };
 }
 
 async function processPdfBuffer(fileBuffer, originalName, options = {}) {
