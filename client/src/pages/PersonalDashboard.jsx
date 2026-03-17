@@ -240,7 +240,8 @@ export default function PersonalDashboard() {
     if (!pdfImportState.busy || !pdfProgress.steps.length) return undefined
     const timer = window.setInterval(() => {
       setPdfProgress((current) => {
-        const nextIndex = Math.min(current.index + 1, Math.max(current.steps.length - 1, 0))
+        const workingMaxIndex = Math.max(current.steps.length - 2, 0)
+        const nextIndex = Math.min(current.index + 1, workingMaxIndex)
         return { ...current, index: nextIndex }
       })
     }, 1200)

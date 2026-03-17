@@ -13,16 +13,21 @@ const CHUNK_SIZE = 800;          // characters per RAG chunk
 const OVERLAP    = 100;          // character overlap between chunks for context continuity
 const MEDIUM_LEN = Number.parseInt(process.env.PDF_LLM_MEDIUM_TARGET_CHARS || "8000", 10);
 const SMALL_LEN  = Number.parseInt(process.env.PDF_LLM_SMALL_TARGET_CHARS || "1800", 10);
-const SUMMARY_INPUT_MAX = Number.parseInt(process.env.PDF_LLM_SUMMARY_INPUT_MAX_CHARS || "30000", 10);
+const MEDIUM_INPUT_MAX = Number.parseInt(process.env.PDF_LLM_MEDIUM_INPUT_MAX_CHARS || "12000", 10);
+const SMALL_INPUT_MAX = Number.parseInt(process.env.PDF_LLM_SMALL_INPUT_MAX_CHARS || "8000", 10);
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 /** Clean extracted text: collapse excessive whitespace, normalize line endings */
 function cleanText(raw) {
-  return raw
+  return String(raw || "")
     .replace(/\r\n/g, "\n")
-    .replace(/[ \t]{3,}/g, "  ")   // collapse long horizontal runs
-    .replace(/\n{4,}/g, "\n\n\n")  // max 3 blank lines
+    .replace(/\.indd/gi, "")
+    .replace(/\b(Page|Chapter)\s*\d+\b/gi, "")
+    .replace(/[^\p{L}\p{N}.,;:!?%()\-_/\n\s#]+/gu, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -115,38 +120,58 @@ async function buildSemanticSummary(text, profile = "medium") {
   if (!useAiSummary || !hasAnyAiKey()) return null;
 
   const target = profile === "small" ? SMALL_LEN : MEDIUM_LEN;
-  const boundedInput = trimAtSentenceBoundary(String(text || ""), SUMMARY_INPUT_MAX);
+  const inputMax = profile === "small" ? SMALL_INPUT_MAX : MEDIUM_INPUT_MAX;
+  const boundedInput = trimAtSentenceBoundary(cleanText(String(text || "")), inputMax);
   if (!boundedInput) return null;
 
   const systemPrompt =
-    "You are an expert technical documentation editor. Create clear, structured summaries for LLM context files. " +
-    "Use short headings and concise bullet points. Keep factual accuracy high and avoid filler.";
+    "You are an AI that converts messy source documents into clean, LLM-friendly summaries. " +
+    "Never dump raw OCR-like text, never repeat lines, and remove noisy artifacts.";
 
   const userPrompt = profile === "small"
     ? [
-      "Create a compact LLM-ready brief from the content below.",
-      "Output format:",
-      "# Quick LLM Brief",
-      "## Core Themes",
-      "- bullet points",
-      "## Must-Know Facts",
-      "- bullet points",
-      "Keep it concise and highly informative.",
+      "Create a compact summary for LLM understanding.",
+      "Rules:",
+      "- Do NOT copy raw text chunks.",
+      "- Remove noise and file artifacts.",
+      "- Use clean, concise language.",
+      "- Keep facts accurate.",
       "",
+      "Format EXACTLY:",
+      "## Overview",
+      "(2-3 lines explaining what this document is about)",
+      "",
+      "## Key Points",
+      "- Point 1",
+      "- Point 2",
+      "- Point 3",
+      "- Point 4",
+      "",
+      "Document:",
       boundedInput,
     ].join("\n")
     : [
-      "Create a structured LLM-ready summary from the content below.",
-      "Output format:",
-      "# Structured LLM Summary",
-      "## Overview",
-      "(short paragraph)",
-      "## Key Concepts",
-      "- bullet points",
-      "## Important Details",
-      "- bullet points",
-      "Focus on concepts, definitions, and practical details.",
+      "Summarize this document into clean structured sections.",
+      "Rules:",
+      "- No raw copying.",
+      "- Remove PDF/OCR artifacts.",
+      "- Organize by topics and concepts.",
+      "- Keep it useful for prompt context injection.",
       "",
+      "Format EXACTLY:",
+      "## Summary",
+      "(short paragraph)",
+      "",
+      "## Topics Covered",
+      "- Topic 1",
+      "- Topic 2",
+      "- Topic 3",
+      "",
+      "## Important Concepts",
+      "- Concept 1",
+      "- Concept 2",
+      "",
+      "Document:",
       boundedInput,
     ].join("\n");
 
