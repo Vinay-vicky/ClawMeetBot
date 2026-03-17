@@ -71,6 +71,12 @@ function RouteFallback() {
   )
 }
 
+function DashboardPrefixedRedirect() {
+  const location = useLocation()
+  const nextPath = location.pathname.replace(/^\/dashboard(?=\/|$)/, '') || '/'
+  return <Navigate to={`${nextPath}${location.search || ''}`} replace />
+}
+
 function AppRoutes() {
   const location = useLocation()
 
@@ -78,12 +84,14 @@ function AppRoutes() {
     <div className="route-fade" key={location.pathname + location.search}>
       <Routes>
         <Route path="/"          element={<Navigate to="/team" replace />} />
+        <Route path="/dashboard/*" element={<DashboardPrefixedRedirect />} />
         <Route path="/login"     element={<Login />} />
         <Route path="/team"      element={<Dashboard />} />
         <Route path="/analytics/*" element={<RouteErrorBoundary><Analytics /></RouteErrorBoundary>} />
         <Route path="/me"        element={<Suspense fallback={<RouteFallback />}><PersonalDashboard /></Suspense>} />
         <Route path="/public"    element={<Suspense fallback={<RouteFallback />}><PublicView /></Suspense>} />
         <Route path="/developer" element={<Suspense fallback={<RouteFallback />}><DeveloperAPI /></Suspense>} />
+        <Route path="*" element={<Navigate to="/team" replace />} />
       </Routes>
     </div>
   )
