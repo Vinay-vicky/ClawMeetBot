@@ -600,10 +600,11 @@ async function getChunksBySourceName(sourceName, sourceType = "") {
 
 /** Delete all chunks for a specific source (used before re-indexing) */
 async function deleteChunksBySource(sourceType, sourceId) {
-  await db.execute({
+  const res = await db.execute({
     sql: "DELETE FROM knowledge_chunks WHERE source_type = ? AND source_id = ?",
     args: [sourceType, String(sourceId)],
   });
+  return Number(res.rowsAffected || 0);
 }
 
 // ── Embedding Cache ───────────────────────────────────────────────────────────────────
@@ -754,6 +755,24 @@ async function getPdfImportById(id, telegramId) {
   return res.rows[0] || null;
 }
 
+async function deletePdfImportById(id, telegramId) {
+  const res = await db.execute({
+    sql: "DELETE FROM pdf_imports WHERE id = ? AND telegram_id = ?",
+    args: [Number(id), String(telegramId)],
+  });
+  return Number(res.rowsAffected || 0);
+}
+
+async function countPdfImportsBySource(sourceType, sourceId) {
+  const res = await db.execute({
+    sql: `SELECT COUNT(*) as cnt
+          FROM pdf_imports
+          WHERE source_type = ? AND source_id = ?`,
+    args: [String(sourceType || ""), String(sourceId || "")],
+  });
+  return Number(res.rows[0]?.cnt || 0);
+}
+
 module.exports = {
   initDb,
   saveMeeting, hasReminderBeenSent, markReminderSent, saveSummary,
@@ -768,7 +787,7 @@ module.exports = {
   // Personal workspace
   addPersonalTask, getPersonalTasks, donePersonalTask, deletePersonalTask, updatePersonalTask,
   addPersonalNote, getPersonalNotes, deletePersonalNote, updatePersonalNote,
-  savePdfImport, getRecentPdfImports, getPdfImportById,
+  savePdfImport, getRecentPdfImports, getPdfImportById, deletePdfImportById, countPdfImportsBySource,
   // Users
   upsertUser, getUserByTelegramId, generateLinkToken, getUserByLinkToken,
   getUsersPublicProfiles,

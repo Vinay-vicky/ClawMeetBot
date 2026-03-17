@@ -9,9 +9,12 @@ const request = require('supertest')
 
 const processCalls = []
 const savePdfImportCalls = []
+const deletePdfImportCalls = []
+const deleteChunksCalls = []
 const recentPdfImports = []
 const chunkRowsBySource = new Map()
 const chunkRowsByName = new Map()
+const sourceImportCountByKey = new Map()
 
 const tempZipPath = path.join(os.tmpdir(), `clawmeet-test-import-${process.pid}.zip`)
 fs.writeFileSync(tempZipPath, Buffer.from('mock zip output'))
@@ -40,10 +43,22 @@ mockModule('../services/dbService', {
   getPersonalNotes: async () => [],
   getRecentPdfImports: async () => recentPdfImports,
   getPdfImportById: async (id) => recentPdfImports.find((row) => Number(row.id) === Number(id)) || null,
+  deletePdfImportById: async (id, telegramId) => {
+    deletePdfImportCalls.push({ id: Number(id), telegramId: String(telegramId) })
+    const index = recentPdfImports.findIndex((row) => Number(row.id) === Number(id) && String(row.telegram_id) === String(telegramId))
+    if (index === -1) return 0
+    recentPdfImports.splice(index, 1)
+    return 1
+  },
+  countPdfImportsBySource: async (sourceType, sourceId) => sourceImportCountByKey.get(`${sourceType}:${sourceId}`) ?? 0,
   getChunksBySource: async (sourceType, sourceId) => chunkRowsBySource.get(`${sourceType}:${sourceId}`) || [],
   getChunksBySourceName: async (sourceName, sourceType) => {
     const key = `${String(sourceName || '').toLowerCase()}:${String(sourceType || '').toLowerCase()}`
     return chunkRowsByName.get(key) || chunkRowsByName.get(`${String(sourceName || '').toLowerCase()}:`) || []
+  },
+  deleteChunksBySource: async (sourceType, sourceId) => {
+    deleteChunksCalls.push({ sourceType, sourceId })
+    return 2
   },
   getUserByTelegramId: async () => ({ telegram_id: '42', name: 'Test User' }),
   updateUserProfileSettings: async () => {},
@@ -141,6 +156,9 @@ function binaryParser(res, callback) {
 test('POST /dashboard/api/me/pdf-upload imports a PDF for an authenticated user', async () => {
   processCalls.length = 0
   savePdfImportCalls.length = 0
+  deletePdfImportCalls.length = 0
+  deleteChunksCalls.length = 0
+  sourceImportCountByKey.clear()
 
   const app = buildApp()
   const res = await request(app)
@@ -170,6 +188,9 @@ test('POST /dashboard/api/me/pdf-upload imports a PDF for an authenticated user'
 test('POST /dashboard/api/me/pdf-url imports a remote PDF for an authenticated user', async () => {
   processCalls.length = 0
   savePdfImportCalls.length = 0
+  deletePdfImportCalls.length = 0
+  deleteChunksCalls.length = 0
+  sourceImportCountByKey.clear()
 
   const app = buildApp()
   const res = await request(app)
@@ -209,6 +230,9 @@ test('GET /dashboard/api/me includes recent PDF imports with download availabili
   recentPdfImports.length = 0
   chunkRowsBySource.clear()
   chunkRowsByName.clear()
+  deletePdfImportCalls.length = 0
+  deleteChunksCalls.length = 0
+  sourceImportCountByKey.clear()
   recentPdfImports.push({
     id: 91,
     telegram_id: '42',
@@ -247,6 +271,9 @@ test('GET /dashboard/api/me/pdf-imports/:id/download streams the saved ZIP outpu
   recentPdfImports.length = 0
   chunkRowsBySource.clear()
   chunkRowsByName.clear()
+  deletePdfImportCalls.length = 0
+  deleteChunksCalls.length = 0
+  sourceImportCountByKey.clear()
   recentPdfImports.push({
     id: 92,
     telegram_id: '42',
@@ -287,6 +314,9 @@ test('GET /dashboard/api/me/pdf-imports/:id/download falls back to source-name l
   recentPdfImports.length = 0
   chunkRowsBySource.clear()
   chunkRowsByName.clear()
+  deletePdfImportCalls.length = 0
+  deleteChunksCalls.length = 0
+  sourceImportCountByKey.clear()
 
   recentPdfImports.push({
     id: 1,
@@ -321,4 +351,86 @@ test('GET /dashboard/api/me/pdf-imports/:id/download falls back to source-name l
   assert.equal(String(res.headers['content-type']).includes('application/zip'), true)
   assert.equal(Buffer.isBuffer(res.body), true)
   assert.equal(res.body.length > 0, true)
+})
+
+test('DELETE /dashboard/api/me/pdf-imports/:id deletes import and removes chunks when unshared', async () => {
+  recentPdfImports.length = 0
+  chunkRowsBySource.clear()
+  chunkRowsByName.clear()
+  deletePdfImportCalls.length = 0
+  deleteChunksCalls.length = 0
+  sourceImportCountByKey.clear()
+
+  recentPdfImports.push({
+    id: 123,
+    telegram_id: '42',
+    file_name: 'delete-me.pdf',
+    download_name: 'delete-me-rag-docs.zip',
+    source_mode: 'upload',
+    source_url: '',
+    source_type: 'pdf_upload',
+    source_id: 'source-delete',
+    pages: 2,
+    chunks: 4,
+    chars: 400,
+    indexed_chunks: 4,
+    zip_path: '',
+    created_at: '2026-03-17 11:00:00',
+  })
+  sourceImportCountByKey.set('pdf_upload:source-delete', 0)
+
+  const app = buildApp()
+  const res = await request(app)
+    .delete('/dashboard/api/me/pdf-imports/123')
+    .set('Cookie', sessionCookie(42))
+    .set('Accept', 'application/json')
+    .set('X-Requested-With', 'fetch')
+
+  assert.equal(res.status, 200)
+  assert.equal(res.body.ok, true)
+  assert.equal(res.body.deletedImportId, 123)
+  assert.equal(deletePdfImportCalls.length, 1)
+  assert.equal(deleteChunksCalls.length, 1)
+  assert.equal(deleteChunksCalls[0].sourceType, 'pdf_upload')
+  assert.equal(deleteChunksCalls[0].sourceId, 'source-delete')
+})
+
+test('DELETE /dashboard/api/me/pdf-imports/:id keeps chunks when source still referenced', async () => {
+  recentPdfImports.length = 0
+  chunkRowsBySource.clear()
+  chunkRowsByName.clear()
+  deletePdfImportCalls.length = 0
+  deleteChunksCalls.length = 0
+  sourceImportCountByKey.clear()
+
+  recentPdfImports.push({
+    id: 124,
+    telegram_id: '42',
+    file_name: 'shared.pdf',
+    download_name: 'shared-rag-docs.zip',
+    source_mode: 'upload',
+    source_url: '',
+    source_type: 'pdf_upload',
+    source_id: 'source-shared',
+    pages: 2,
+    chunks: 4,
+    chars: 400,
+    indexed_chunks: 4,
+    zip_path: '',
+    created_at: '2026-03-17 11:10:00',
+  })
+  sourceImportCountByKey.set('pdf_upload:source-shared', 2)
+
+  const app = buildApp()
+  const res = await request(app)
+    .delete('/dashboard/api/me/pdf-imports/124')
+    .set('Cookie', sessionCookie(42))
+    .set('Accept', 'application/json')
+    .set('X-Requested-With', 'fetch')
+
+  assert.equal(res.status, 200)
+  assert.equal(res.body.ok, true)
+  assert.equal(res.body.deletedImportId, 124)
+  assert.equal(deletePdfImportCalls.length, 1)
+  assert.equal(deleteChunksCalls.length, 0)
 })

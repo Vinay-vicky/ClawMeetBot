@@ -129,6 +129,7 @@ export default function PersonalDashboard() {
   const [pdfImportUrl, setPdfImportUrl] = useState('')
   const [pdfImportState, setPdfImportState] = useState({ busy: false, error: '', ok: '', result: null })
   const [pdfProgress, setPdfProgress] = useState({ steps: [], index: 0 })
+  const [deletingImportId, setDeletingImportId] = useState(null)
   const { search } = useLocation()
 
   const user = data?.user || null
@@ -541,6 +542,36 @@ export default function PersonalDashboard() {
     }
   }
 
+  async function deleteImportedPdf(item) {
+    if (!item?.id) return
+    if (!window.confirm(`Delete import "${item.fileName}"? This removes it from history and may remove indexed chunks if no other import uses them.`)) {
+      return
+    }
+
+    setDeletingImportId(item.id)
+    try {
+      const res = await fetch(backendUrl(`/dashboard/api/me/pdf-imports/${item.id}`), {
+        method: 'DELETE',
+        headers: { Accept: 'application/json', 'X-Requested-With': 'fetch' },
+        credentials: 'include',
+      })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(payload.error || 'Failed to delete imported PDF')
+
+      setPdfImportState({
+        busy: false,
+        error: '',
+        ok: `${item.fileName} deleted from import history.`,
+        result: null,
+      })
+      refresh()
+    } catch (e) {
+      setPdfImportState({ busy: false, error: e.message || 'Failed to delete imported PDF', ok: '', result: null })
+    } finally {
+      setDeletingImportId(null)
+    }
+  }
+
   return (
     <div>
       <div className="hdr">
@@ -689,6 +720,15 @@ export default function PersonalDashboard() {
                       ) : (
                         <span className="pdf-history-missing">Not enough indexed data yet</span>
                       )}
+                      <button
+                        type="button"
+                        className="btn btn-del"
+                        onClick={() => deleteImportedPdf(item)}
+                        disabled={deletingImportId === item.id}
+                        title="Delete this imported PDF"
+                      >
+                        {deletingImportId === item.id ? 'Deleting...' : 'Delete'}
+                      </button>
                     </div>
                   </div>
                 ))}

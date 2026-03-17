@@ -28,8 +28,11 @@ const {
   savePdfImport,
   getRecentPdfImports,
   getPdfImportById,
+  deletePdfImportById,
+  countPdfImportsBySource,
   getChunksBySource,
   getChunksBySourceName,
+  deleteChunksBySource,
 } = require("../services/dbService");
 const { getScheduledMeetings } = require("../services/calendarService");
 const { getTelegramProfilePhotoFileUrl } = require("../services/telegramService");
@@ -526,6 +529,47 @@ router.get("/api/me/pdf-imports/:id/download", requireSession, async (req, res) 
   } catch (err) {
     logger.error("Dashboard PDF ZIP download error:", err);
     return res.status(500).json({ error: "Failed to download ZIP output" });
+  }
+});
+
+router.delete("/api/me/pdf-imports/:id", requireJsonSession, async (req, res) => {
+  try {
+    const importRecord = await getPdfImportById(req.params.id, req.session.tid);
+    if (!importRecord) return res.status(404).json({ error: "Import not found" });
+
+    const removedImports = await deletePdfImportById(importRecord.id, req.session.tid);
+    if (!removedImports) return res.status(404).json({ error: "Import not found" });
+
+    let removedChunks = 0;
+    const sourceType = String(importRecord.source_type || "").trim();
+    const sourceId = String(importRecord.source_id || "").trim();
+    if (sourceType && sourceId) {
+      const remainingImports = await countPdfImportsBySource(sourceType, sourceId);
+      if (remainingImports === 0) {
+        removedChunks = await deleteChunksBySource(sourceType, sourceId);
+      }
+    }
+
+    let removedZip = false;
+    const zipPath = path.resolve(String(importRecord.zip_path || ""));
+    if (importRecord.zip_path && fs.existsSync(zipPath)) {
+      try {
+        fs.unlinkSync(zipPath);
+        removedZip = true;
+      } catch (zipErr) {
+        logger.warn(`Failed to remove PDF ZIP for import ${importRecord.id}: ${zipErr.message}`);
+      }
+    }
+
+    return res.json({
+      ok: true,
+      deletedImportId: Number(importRecord.id),
+      removedChunks,
+      removedZip,
+    });
+  } catch (err) {
+    logger.error("Dashboard PDF import delete error:", err);
+    return res.status(500).json({ error: "Failed to delete imported PDF" });
   }
 });
 
