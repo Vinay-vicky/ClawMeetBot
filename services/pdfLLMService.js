@@ -6,12 +6,14 @@ const { PDFParse } = require("pdf-parse");
 const archiver = require("archiver");
 const { v4: uuidv4 } = require("uuid");
 const logger = require("../utils/logger");
+const { callAI } = require("./aiSummaryService");
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 const CHUNK_SIZE = 800;          // characters per RAG chunk
 const OVERLAP    = 100;          // character overlap between chunks for context continuity
-const MEDIUM_LEN = 4000;         // characters for llms-medium.txt
-const SMALL_LEN  = 1000;         // characters for llms-small.txt
+const MEDIUM_LEN = Number.parseInt(process.env.PDF_LLM_MEDIUM_TARGET_CHARS || "8000", 10);
+const SMALL_LEN  = Number.parseInt(process.env.PDF_LLM_SMALL_TARGET_CHARS || "1800", 10);
+const SUMMARY_INPUT_MAX = Number.parseInt(process.env.PDF_LLM_SUMMARY_INPUT_MAX_CHARS || "30000", 10);
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -35,6 +37,140 @@ function makeChunks(text, size = CHUNK_SIZE, overlap = OVERLAP) {
   return chunks;
 }
 
+function hasAnyAiKey() {
+  return Boolean(
+    process.env.KIMI_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    process.env.GROQ_API_KEY ||
+    (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "your_gemini_api_key_here"),
+  );
+}
+
+function trimAtSentenceBoundary(text, maxChars) {
+  const normalized = cleanText(String(text || ""));
+  const target = Number(maxChars || 0);
+  if (!target || normalized.length <= target) return normalized;
+
+  const probe = normalized.slice(0, target + 300);
+  const boundaryIdx = Math.max(
+    probe.lastIndexOf("\n"),
+    probe.lastIndexOf(". "),
+    probe.lastIndexOf("? "),
+    probe.lastIndexOf("! "),
+  );
+
+  if (boundaryIdx > Math.floor(target * 0.65)) {
+    return probe.slice(0, boundaryIdx + 1).trim();
+  }
+  return normalized.slice(0, target).trim();
+}
+
+function firstSentence(paragraph, maxLen = 220) {
+  const normalized = cleanText(String(paragraph || "")).replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  const match = normalized.match(/.*?[.!?](?:\s|$)/);
+  const sentence = match ? match[0].trim() : normalized;
+  return sentence.length > maxLen ? `${sentence.slice(0, maxLen - 1).trim()}…` : sentence;
+}
+
+function buildStructuredFallbackSummary(text, profile = "medium") {
+  const target = profile === "small" ? SMALL_LEN : MEDIUM_LEN;
+  const normalized = cleanText(String(text || ""));
+  if (!normalized) return "";
+
+  const paragraphs = normalized
+    .split(/\n{2,}/)
+    .map((line) => cleanText(line))
+    .filter((line) => line.length > 40);
+
+  if (!paragraphs.length) return trimAtSentenceBoundary(normalized, target);
+
+  const bulletCount = profile === "small" ? 6 : 14;
+  const step = Math.max(1, Math.floor(paragraphs.length / bulletCount));
+  const selected = [];
+  for (let i = 0; i < paragraphs.length && selected.length < bulletCount; i += step) {
+    selected.push(paragraphs[i]);
+  }
+
+  const lines = [
+    profile === "small" ? "# Quick LLM Brief" : "# Structured LLM Summary",
+    "",
+    "## Overview",
+    firstSentence(paragraphs[0], profile === "small" ? 260 : 360),
+    "",
+    "## Key Points",
+    ...selected.map((entry) => `- ${firstSentence(entry, profile === "small" ? 180 : 220)}`),
+  ];
+
+  if (profile !== "small" && paragraphs.length > 3) {
+    const tail = paragraphs.slice(-2).map((entry) => `- ${firstSentence(entry, 220)}`);
+    lines.push("", "## Closing Notes", ...tail);
+  }
+
+  return trimAtSentenceBoundary(lines.join("\n"), target);
+}
+
+async function buildSemanticSummary(text, profile = "medium") {
+  const useAiSummary = String(process.env.PDF_LLM_USE_AI_SUMMARY || "true").toLowerCase() !== "false";
+  if (!useAiSummary || !hasAnyAiKey()) return null;
+
+  const target = profile === "small" ? SMALL_LEN : MEDIUM_LEN;
+  const boundedInput = trimAtSentenceBoundary(String(text || ""), SUMMARY_INPUT_MAX);
+  if (!boundedInput) return null;
+
+  const systemPrompt =
+    "You are an expert technical documentation editor. Create clear, structured summaries for LLM context files. " +
+    "Use short headings and concise bullet points. Keep factual accuracy high and avoid filler.";
+
+  const userPrompt = profile === "small"
+    ? [
+      "Create a compact LLM-ready brief from the content below.",
+      "Output format:",
+      "# Quick LLM Brief",
+      "## Core Themes",
+      "- bullet points",
+      "## Must-Know Facts",
+      "- bullet points",
+      "Keep it concise and highly informative.",
+      "",
+      boundedInput,
+    ].join("\n")
+    : [
+      "Create a structured LLM-ready summary from the content below.",
+      "Output format:",
+      "# Structured LLM Summary",
+      "## Overview",
+      "(short paragraph)",
+      "## Key Concepts",
+      "- bullet points",
+      "## Important Details",
+      "- bullet points",
+      "Focus on concepts, definitions, and practical details.",
+      "",
+      boundedInput,
+    ].join("\n");
+
+  const response = await callAI(systemPrompt, userPrompt);
+  const cleaned = cleanText(String(response || ""));
+  if (!cleaned || cleaned.length < 120) return null;
+  return trimAtSentenceBoundary(cleaned, target);
+}
+
+async function generateLlmContextVariants(fullText) {
+  const normalized = cleanText(String(fullText || ""));
+  const full = normalized;
+  const llms = full;
+
+  const mediumSemantic = await buildSemanticSummary(full, "medium");
+  const medium = mediumSemantic || buildStructuredFallbackSummary(full, "medium");
+
+  // For a stronger small file, summarize the medium output when available.
+  const smallSemantic = await buildSemanticSummary(medium || full, "small");
+  const small = smallSemantic || buildStructuredFallbackSummary(medium || full, "small");
+
+  return { llms, full, medium, small };
+}
+
 async function buildRagZipBuffer(options = {}) {
   const originalName = String(options.originalName || "document.pdf");
   const sourceMode = String(options.sourceMode || "upload");
@@ -51,6 +187,7 @@ async function buildRagZipBuffer(options = {}) {
   }
 
   const fullText = chunkTexts.join("\n\n");
+  const variants = await generateLlmContextVariants(fullText);
   const metadata = {
     source: originalName,
     source_mode: sourceMode,
@@ -93,10 +230,10 @@ async function buildRagZipBuffer(options = {}) {
 
     archive.pipe(stream);
 
-    archive.append(fullText, { name: "llms.txt" });
-    archive.append(fullText, { name: "llms-full.txt" });
-    archive.append(fullText.slice(0, MEDIUM_LEN), { name: "llms-medium.txt" });
-    archive.append(fullText.slice(0, SMALL_LEN), { name: "llms-small.txt" });
+    archive.append(variants.llms, { name: "llms.txt" });
+    archive.append(variants.full, { name: "llms-full.txt" });
+    archive.append(variants.medium, { name: "llms-medium.txt" });
+    archive.append(variants.small, { name: "llms-small.txt" });
     archive.append(JSON.stringify(metadata, null, 2), { name: "metadata.json" });
     archive.append(readme, { name: "README.md" });
 
@@ -119,6 +256,7 @@ async function convertPdf(fileBuffer, originalName) {
   const parsed = await parser.getText();
   const numpages = (parsed.pages && parsed.pages.length) || 0;
   const text = cleanText(parsed.text);
+  const variants = await generateLlmContextVariants(text);
 
   if (!text || text.length < 10) {
     throw new Error("PDF appears to be empty or image-only (no extractable text).");
@@ -134,12 +272,12 @@ async function convertPdf(fileBuffer, originalName) {
   fs.mkdirSync(folderPath, { recursive: true });
 
   // ── 1. Full text ──────────────────────────────────────────────────────────
-  fs.writeFileSync(path.join(folderPath, "llms.txt"),        text, "utf8");
-  fs.writeFileSync(path.join(folderPath, "llms-full.txt"),   text, "utf8");
+  fs.writeFileSync(path.join(folderPath, "llms.txt"),        variants.llms, "utf8");
+  fs.writeFileSync(path.join(folderPath, "llms-full.txt"),   variants.full, "utf8");
 
   // ── 2. Medium & small summaries ───────────────────────────────────────────
-  fs.writeFileSync(path.join(folderPath, "llms-medium.txt"), text.slice(0, MEDIUM_LEN), "utf8");
-  fs.writeFileSync(path.join(folderPath, "llms-small.txt"),  text.slice(0, SMALL_LEN),  "utf8");
+  fs.writeFileSync(path.join(folderPath, "llms-medium.txt"), variants.medium, "utf8");
+  fs.writeFileSync(path.join(folderPath, "llms-small.txt"),  variants.small,  "utf8");
 
   // ── 3. Metadata ───────────────────────────────────────────────────────────
   const meta = {
@@ -213,4 +351,4 @@ function cleanup(zipPath) {
   try { fs.unlinkSync(zipPath); } catch (_) {}
 }
 
-module.exports = { convertPdf, buildRagZipBuffer, cleanup };
+module.exports = { convertPdf, buildRagZipBuffer, generateLlmContextVariants, cleanup };
